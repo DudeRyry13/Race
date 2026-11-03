@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: babylon-racing-rooms
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /health
