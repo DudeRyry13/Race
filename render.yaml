@@ -2,6 +2,7 @@ services:
   - type: web
     name: babylon-racing-rooms
     runtime: node
+    region: frankfurt
     plan: free
     buildCommand: npm ci
     startCommand: npm start

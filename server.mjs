@@ -31,7 +31,7 @@ function originFor(req){
 const server=http.createServer((req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;
   if(req.method==='OPTIONS')return reply(res,204,{});
-  if((path==='/'||path==='/health')&&req.method==='GET')return reply(res,200,{game:'Babylon Racing',protocol:PROTOCOL,status:'ready'});
+  if((path==='/'||path==='/health')&&req.method==='GET')return reply(res,200,{game:'Babylon Racing',protocol:PROTOCOL,status:'ready',networkVersion:2,region:process.env.GAME_REGION??null});
   if(path==='/api/online/create'&&req.method==='POST'){
     const ip=(req.headers['x-forwarded-for']??req.socket.remoteAddress??'local').toString().split(',')[0],now=Date.now();
     const entry=limits.get(ip)??{at:now,count:0};if(now-entry.at>60000){entry.at=now;entry.count=0;}limits.set(ip,entry);
@@ -51,6 +51,7 @@ server.on('upgrade',(req,socket,head)=>{
   if(url.pathname!=='/ws'||!room||!['host','guest'].includes(role)||!equal(url.searchParams.get('token'),role==='host'?room.hostKey:room.key))return reject(403);
   if(room[role])return reject(409);
   wss.handleUpgrade(req,socket,head,ws=>{
+    req.socket.setNoDelay(true);
     const peer={ws,role,hero:role==='host'?'mensari':room.host?.hero==='monster'?'mensari':'monster',loaded:false,ready:false,alive:true,window:Date.now(),count:0};
     room[role]=peer;room.lastSeen=Date.now();ws.on('pong',()=>peer.alive=true);
     send(peer,{type:'welcome',role,room:publicRoom(room)});update(room);
@@ -62,6 +63,7 @@ server.on('upgrade',(req,socket,head)=>{
       room.lastSeen=now;
       const other=role==='host'?room.guest:room.host;
       if(m.type==='ping')return send(peer,{type:'pong',time:m.time});
+      if(['signal','linkPing','linkPong'].includes(m.type)&&raw.length<40000)return send(other,raw.toString());
       if(m.type==='profile'){
         if(m.protocol!==PROTOCOL)return send(peer,{type:'error',message:'Версии игры отличаются. Обновите обе копии.'});
         if(room.phase==='race'||!heroes.has(m.hero))return;
