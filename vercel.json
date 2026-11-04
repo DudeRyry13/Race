@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "npm run build:vercel",
+  "installCommand": "npm ci",
+  "outputDirectory": "dist-vercel",
+  "trailingSlash": true,
+  "redirects": [
+    {"source": "/", "destination": "/viewer/", "permanent": false}
+  ],
+  "headers": [
+    {"source": "/(.*)", "headers": [{"key": "X-Content-Type-Options", "value": "nosniff"}]},
+    {"source": "/viewer/", "headers": [{"key": "Cache-Control", "value": "no-cache"}]},
+    {"source": "/viewer/index.html", "headers": [{"key": "Cache-Control", "value": "no-cache"}]},
+    {"source": "/viewer/vendor/(.*)", "headers": [{"key": "Cache-Control", "value": "public, max-age=31536000, immutable"}]},
+    {"source": "/viewer/assets/(.*)", "headers": [{"key": "Cache-Control", "value": "public, max-age=3600, must-revalidate"}]}
+  ]
+}

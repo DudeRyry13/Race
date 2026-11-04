@@ -12,12 +12,12 @@ import {createRaceAudio} from './race-audio.mjs';
 import {createRaceItems} from './race-items.mjs?build=web-v19';
 import {createRaceAI} from './racer-ai.mjs';
 import {createTrackObstacles} from './track-obstacles.mjs?build=online-v17';
-import {createOnlineClient,decodeInput} from './online-client.mjs?build=web-v18';
+import {createOnlineClient,decodeInput} from './online-client.mjs?build=web-v20';
 import {packRacer,applyRacer} from './online-state.mjs?build=online-v17';
 import {preserveLocalPose,settleLocalPose} from './online-motion.mjs?build=online-v17';
 import {resetDrift,stepDrift,createDriftEffects} from './drift.mjs';
 import {createPodium} from './podium.mjs?build=podium-no-headlights-v7';
-import {createRaceIntro,RACE_INTRO_SECONDS,CHASE_CAMERA} from './race-intro.mjs?build=babylon-v12';
+import {createRaceIntro,RACE_INTRO_SECONDS,CHASE_CAMERA} from './race-intro.mjs?build=camera-v20';
 import {prepareRaceGraphics} from './render-preparation.mjs?build=web-v19';
 
 const $=id=>document.getElementById(id),clamp=THREE.MathUtils.clamp,damp=THREE.MathUtils.damp;

@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "engines": {"node": ">=22"},
-  "scripts": {"build": "node scripts/precompress.mjs", "start": "node server.mjs"},
+  "scripts": {"build": "node scripts/precompress.mjs", "build:vercel": "node scripts/build-vercel.mjs", "start": "node server.mjs"},
   "dependencies": {"ws": "8.22.1"}
 }

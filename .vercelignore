@@ -1,0 +1,8 @@
+node_modules/
+dist-vercel/
+.git/
+.env
+.env.*
+*.log
+home-server.json
+Caddyfile.home

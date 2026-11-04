@@ -2,7 +2,8 @@ import {createInputInbox} from './online-input.mjs?build=online-v17';
 import {createPeerLink} from './online-peer.mjs?build=online-v17';
 export const ONLINE_PROTOCOL='babylon-online-v1';
 const hosted=globalThis.location?.protocol==='https:'||globalThis.document?.documentElement?.dataset?.hosted==='true';
-export const DEFAULT_ONLINE_SERVER=hosted?globalThis.location.origin:'https://race-yx4w.onrender.com';
+const configuredServer=globalThis.document?.documentElement?.dataset?.onlineServer;
+export const DEFAULT_ONLINE_SERVER=configuredServer||(hosted?globalThis.location.origin:'https://race-yx4w.onrender.com');
 export const INPUT={gas:1,brake:2,left:4,right:8,boost:16,drift:32,use:64,drop:128};
 export function decodeInput(mask=0){return Object.fromEntries(Object.entries(INPUT).map(([key,bit])=>[key,!!(mask&bit)]));}
 export function encodeInput(input){return Object.entries(INPUT).reduce((mask,[key,bit])=>mask|(input[key]?bit:0),0);}
@@ -11,7 +12,17 @@ export function parseInvite(value){
   if(!(url.protocol==='https:'||(url.protocol==='http:'&&['localhost','127.0.0.1'].includes(url.hostname))))throw Error('Нужна HTTPS-ссылка комнаты.');
   const room=fragment.get('room'),key=fragment.get('key');
   if(!/^[a-f0-9]{12}$/.test(room??'')||!/^[a-f0-9]{48}$/.test(key??''))throw Error('В ссылке нет ключа комнаты. Скопируй её целиком.');
-  return (url.protocol==='https:'?'wss://':'ws://')+url.host+'/ws?role=guest&room='+room+'&token='+key;
+  const server=new URL(fragment.get('server')||url.origin);
+  if(!(server.protocol==='https:'||(server.protocol==='http:'&&['localhost','127.0.0.1'].includes(server.hostname))))throw Error('В приглашении указан неподдерживаемый сервер.');
+  return (server.protocol==='https:'?'wss://':'ws://')+server.host+'/ws?role=guest&room='+room+'&token='+key;
+}
+export function inviteForPage(value,pageUrl=globalThis.location?.href){
+  const original=new URL(value),page=pageUrl?new URL(pageUrl):null;
+  // Downloaded local copies keep the server's public link. Hosted copies keep
+  // the player on the game site while the room service may live elsewhere.
+  if(!page||page.protocol!=='https:'||page.origin===original.origin)return original.href;
+  const shared=new URL('./',page),fragment=new URLSearchParams(original.hash.slice(1));
+  fragment.set('server',original.origin);shared.hash=fragment.toString();return shared.href;
 }
 export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,onEvent,onLobby,onPause,onDisconnect}){
   const $=id=>document.getElementById(id);
@@ -140,7 +151,7 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
         const response=await fetch(base.origin+'/api/online/create',{method:'POST',signal:AbortSignal.timeout(120000)});
         if(!response.ok)throw Error('Сервер не создал комнату. Проверь адрес и попробуй снова.');
         const data=await response.json();if(data.protocol!==ONLINE_PROTOCOL||!data.invite)throw Error('Это сервер другой версии игры.');
-        localStorage.setItem('babylon-online-server',base.origin);invite=data.invite;connect(data.hostUrl,'host');
+        localStorage.setItem('babylon-online-server',base.origin);invite=inviteForPage(data.invite);connect(data.hostUrl,'host');
         status='Ссылка готова — отправь её второму игроку';render();return;
       }
     }catch(e){status=e.message;render();}
