@@ -7,7 +7,7 @@ import {createStaticHandler} from './static-files.mjs';
 const PROTOCOL='babylon-online-v1',PORT=Number(process.env.PORT)||3000,rooms=new Map(),limits=new Map();
 const serveStatic=createStaticHandler(fileURLToPath(new URL('./public/',import.meta.url)));
 const heroes=new Set(['mensari','monster','se1t','textured_00002','textured_00004','haakon','leona','mara','geekaton']);
-const tracks=new Set(['app1','app2','app3']),levels=new Set(['easy','medium','hard']);
+const tracks=new Set(['app1','app2','app3','app4']),levels=new Set(['easy','medium','hard']);
 const secret=bytes=>randomBytes(bytes).toString('hex');
 const equal=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const players=room=>[room.host,room.guest].filter(Boolean);
@@ -34,7 +34,7 @@ function originFor(req){
 const server=http.createServer((req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;
   if(req.method==='OPTIONS')return reply(res,204,{});
-  if(path==='/health'&&req.method==='GET')return reply(res,200,{game:'Babylon Racing',protocol:PROTOCOL,status:'ready',networkVersion:2,webVersion:18,region:process.env.GAME_REGION??null});
+  if(path==='/health'&&req.method==='GET')return reply(res,200,{game:'Babylon Racing',protocol:PROTOCOL,status:'ready',networkVersion:2,webVersion:21,region:process.env.GAME_REGION??null});
   if(path==='/api/online/create'&&req.method==='POST'){
     const ip=(req.headers['x-forwarded-for']??req.socket.remoteAddress??'local').toString().split(',')[0],now=Date.now();
     const entry=limits.get(ip)??{at:now,count:0};if(now-entry.at>60000){entry.at=now;entry.count=0;}limits.set(ip,entry);

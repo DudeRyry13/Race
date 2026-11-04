@@ -23,9 +23,10 @@ import {prepareRaceGraphics} from './render-preparation.mjs?build=web-v19';
 const $=id=>document.getElementById(id),clamp=THREE.MathUtils.clamp,damp=THREE.MathUtils.damp;
 const HEROES=RACERS;
 let selectedId=localStorage.getItem('neon-racer')||'mensari';if(!HEROES.some(h=>h.id===selectedId))selectedId='mensari';
-const TRACKS=[{id:'app1',name:'Caritas · Neon Circuit',tag:'Неоновый город',short:'APP1'},
-  {id:'app2',name:'Fortitudo · Noir Circuit',tag:'Ночной город и тоннели',short:'APP2'},
-  {id:'app3',name:'Audentia · Skybreak Circuit',tag:'Три разрыва · виадук · ловушки',short:'APP3'}];
+const TRACKS=[{id:'app1',name:'Caritas · Neon Circuit',tag:'Неоновый город',short:'APP1',assetVersion:'uniform-no-jumps-v3'},
+  {id:'app2',name:'Fortitudo · Noir Circuit',tag:'Ночной город и тоннели',short:'APP2',assetVersion:'uniform-no-jumps-v3'},
+  {id:'app3',name:'Audentia · Skybreak Circuit',tag:'Три разрыва · виадук · ловушки',short:'APP3',jumps:true,assetVersion:'audentia-v13'},
+  {id:'app4',name:'Sunstone · Colosseum GP',tag:'Пустынный каньон · спираль · тоннель · прыжок',short:'APP4',jumps:true,assetVersion:'sunstone-v21'}];
 let selectedTrackId=localStorage.getItem('neon-track')||'app1';if(!TRACKS.some(t=>t.id===selectedTrackId))selectedTrackId='app1';
 const DIFFICULTIES=[{id:'easy',name:'Лёгкий',description:'Прежний темп соперников'},
   {id:'medium',name:'Средний',description:'Позднее торможение, уверенные обгоны и дрифт'},
@@ -53,7 +54,7 @@ const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-per
 renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.shadowMap.enabled=false;document.body.prepend(renderer.domElement);
 const camera=new THREE.PerspectiveCamera(56,innerWidth/innerHeight,.12,2400),orbit=new OrbitControls(camera,renderer.domElement);orbit.enabled=false;orbit.enableDamping=true;orbit.maxDistance=1400;
 const environment=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();scene.environment=environment.fromScene(room,.02).texture;scene.environmentIntensity=.46;room.dispose();environment.dispose();
-scene.add(new THREE.HemisphereLight(0xa3c2ff,0x231333,1.25));
+const skyLight=new THREE.HemisphereLight(0xa3c2ff,0x231333,1.25);scene.add(skyLight);
 const sun=new THREE.DirectionalLight(0xb5caff,1.55);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.normalBias=.025;Object.assign(sun.shadow.camera,{left:-17,right:17,top:17,bottom:-17,near:.5,far:100});scene.add(sun,sun.target);
 // Keep the light count fixed: hiding a distant kart must not recompile shaders.
 const kartLights=Array.from({length:3},()=>{const light=new THREE.PointLight(0xffffff,0,5.5,2);scene.add(light);return light;});
@@ -96,7 +97,7 @@ function addKartLights(r){
   }
 }
 async function loadTrack(data=trackData,id=selectedTrackId){
-  const gltf=await loader.loadAsync(`./assets/${id}-circuit.glb?build=${id==='app3'?'audentia-v13':'uniform-no-jumps-v3'}`);gltf.scene.scale.setScalar(data.worldScale);gltf.scene.updateMatrixWorld(true);
+  const gltf=await loader.loadAsync(`./assets/${id}-circuit.glb?build=${TRACKS.find(track=>track.id===id).assetVersion}`);gltf.scene.scale.setScalar(data.worldScale);gltf.scene.updateMatrixWorld(true);
   const group=new THREE.Group(),batches=new Map();group.name=id+' supplied circuit';
   const meshes=[];gltf.scene.traverse(o=>{if(o.isMesh)meshes.push(o);});
   for(const source of meshes){
@@ -141,7 +142,7 @@ async function selectTrack(id,fromNetwork=false){
     selectedTrackId=id;localStorage.setItem('neon-track',id);ready=true;resetGrid();updateTrackMenu();$('loadLabel').textContent='Готово · '+TRACKS.find(t=>t.id===id).name;
   }catch(error){
     console.error(error);nextItems?.dispose();if(candidate)disposeTrack(candidate);
-    configureTrack(previous.data);trackGroup=previous.group;scene.add(trackGroup);items=previous.items;selectedTrackId=previous.id;
+    configureTrack(previous.data);applyTrackAppearance();trackGroup=previous.group;scene.add(trackGroup);items=previous.items;selectedTrackId=previous.id;
     ready=true;resetGrid();updateTrackMenu();notify('Не удалось загрузить выбранную трассу');$('loadLabel').textContent='Предыдущая трасса готова. Можно повторить выбор.';
   }
   $('startRace').disabled=false;for(const b of $('trackGrid').querySelectorAll('button'))b.disabled=false;
@@ -184,10 +185,18 @@ async function loadAll(){
   }catch(error){console.error(error);$('loadLabel').textContent='Не удалось загрузить гонку. Обнови страницу и проверь соединение.';$('loadLabel').classList.add('error');}
 }
 async function prepareGraphics(){
+  applyTrackAppearance();
   $('loadLabel').textContent='Готовим гонку…';
   await prepareRaceGraphics({THREE,renderer,scene,camera,racers,items,onProgress:progress=>{$('loadFill').style.width=`${92+8*progress}%`;}});
   // Do not carry loading time into the first countdown frame.
   clock.getDelta();
+}
+function applyTrackAppearance(){
+  const light=trackData.lighting??{};
+  scene.background.set(light.background??'#070b1b');scene.fog.color.set(light.fog??'#070b1b');
+  skyLight.color.set(light.sky??0xa3c2ff);skyLight.groundColor.set(light.ground??0x231333);skyLight.intensity=light.hemisphereIntensity??1.25;
+  sun.color.set(light.sun??0xb5caff);sun.intensity=light.sunIntensity??1.55;
+  scene.environmentIntensity=light.environmentIntensity??.46;renderer.toneMappingExposure=light.exposure??1.15;
 }
 function sampleDistance(distance){const u=((distance/LENGTH)%1+1)%1,p=route.getPointAt(u),t=route.getTangentAt(u);return {u,p,t,left:new THREE.Vector3(t.z,0,-t.x).normalize()};}
 function placeAI(r,dt=0,snap=false){
@@ -425,7 +434,7 @@ function bindHold(element,down,up){element.addEventListener('pointerdown',e=>{e.
 $('heroGrid').style.setProperty('--hero-count',HEROES.length);
 $('heroGrid').innerHTML=HEROES.map(hero=>`<button class="hero-card" type="button" data-hero="${hero.id}" aria-pressed="false"><img src="./assets/selection/${hero.id}.png?art=babylon-v12" alt="${hero.name}"><span>${hero.name}</span><small>${hero.tag}</small></button>`).join('');
 $('heroGrid').addEventListener('click',event=>{const button=event.target.closest('[data-hero]');if(button)selectHero(button.dataset.hero);});
-$('trackGrid').innerHTML=TRACKS.map(track=>`<button type="button" class="track-card" data-track="${track.id}" aria-pressed="false" disabled><img src="./assets/${track.id}-preview.png" alt=""><span><b>${track.name}</b><small>${track.tag}${track.id==='app3'?'':' · без трамплинов'}</small></span></button>`).join('');
+$('trackGrid').innerHTML=TRACKS.map(track=>`<button type="button" class="track-card" data-track="${track.id}" aria-pressed="false" disabled><img src="./assets/${track.id}-preview.png" alt=""><span><b>${track.name}</b><small>${track.tag}${track.jumps?'':' · без трамплинов'}</small></span></button>`).join('');
 $('trackGrid').addEventListener('click',event=>{const b=event.target.closest('[data-track]');if(b)selectTrack(b.dataset.track);});updateTrackMenu();
 $('difficultyGrid').innerHTML=DIFFICULTIES.map(d=>`<button type="button" data-difficulty="${d.id}" aria-pressed="${d.id===difficulty}" disabled><b>${d.name}</b><span>${d.description}</span></button>`).join('');
 $('difficultyGrid').addEventListener('click',event=>{const b=event.target.closest('[data-difficulty]');if(b)selectDifficulty(b.dataset.difficulty);});
