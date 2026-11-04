@@ -9,7 +9,7 @@ import {createTrackRoute,stepTrackHeight} from './race-track.mjs';
 import {RULES,ITEM_TYPES,ITEM_BY_ID,initRacerRules,tickRacerRules,speedLimit,motorStep,racerTuning} from './racing-rules.mjs';
 import {RACERS,racerDisplayStats} from './racer-data.mjs';
 import {createRaceAudio} from './race-audio.mjs';
-import {createRaceItems} from './race-items.mjs?build=online-v17';
+import {createRaceItems} from './race-items.mjs?build=web-v19';
 import {createRaceAI} from './racer-ai.mjs';
 import {createTrackObstacles} from './track-obstacles.mjs?build=online-v17';
 import {createOnlineClient,decodeInput} from './online-client.mjs?build=web-v18';
@@ -18,6 +18,7 @@ import {preserveLocalPose,settleLocalPose} from './online-motion.mjs?build=onlin
 import {resetDrift,stepDrift,createDriftEffects} from './drift.mjs';
 import {createPodium} from './podium.mjs?build=podium-no-headlights-v7';
 import {createRaceIntro,RACE_INTRO_SECONDS,CHASE_CAMERA} from './race-intro.mjs?build=babylon-v12';
+import {prepareRaceGraphics} from './render-preparation.mjs?build=web-v19';
 
 const $=id=>document.getElementById(id),clamp=THREE.MathUtils.clamp,damp=THREE.MathUtils.damp;
 const HEROES=RACERS;
@@ -54,6 +55,8 @@ const camera=new THREE.PerspectiveCamera(56,innerWidth/innerHeight,.12,2400),orb
 const environment=new THREE.PMREMGenerator(renderer),room=new RoomEnvironment();scene.environment=environment.fromScene(room,.02).texture;scene.environmentIntensity=.46;room.dispose();environment.dispose();
 scene.add(new THREE.HemisphereLight(0xa3c2ff,0x231333,1.25));
 const sun=new THREE.DirectionalLight(0xb5caff,1.55);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.normalBias=.025;Object.assign(sun.shadow.camera,{left:-17,right:17,top:17,bottom:-17,near:.5,far:100});scene.add(sun,sun.target);
+// Keep the light count fixed: hiding a distant kart must not recompile shaders.
+const kartLights=Array.from({length:3},()=>{const light=new THREE.PointLight(0xffffff,0,5.5,2);scene.add(light);return light;});
 const draco=new DRACOLoader().setDecoderPath(new URL('./vendor/draco/',import.meta.url).href).setWorkerLimit(2);
 const loader=new GLTFLoader().setDRACOLoader(draco),clock=new THREE.Clock(),lookTarget=new THREE.Vector3(),desiredCamera=new THREE.Vector3();
 const map=$('map'),mapContext=map.getContext('2d');
@@ -87,7 +90,6 @@ function glowTexture(){
 const glowMap=glowTexture(),bubbleGeometry=new THREE.SphereGeometry(1,24,16),jetGeometry=new THREE.ConeGeometry(.14,.85,10);
 function addKartLights(r){
   const color=new THREE.Color(r.hero.color),glow=new THREE.Mesh(new THREE.PlaneGeometry(2.4,3.3),new THREE.MeshBasicMaterial({map:glowMap,color,transparent:true,opacity:.65,depthWrite:false,blending:THREE.AdditiveBlending}));glow.rotation.x=-Math.PI/2;scene.add(glow);r.glow=glow;
-  const light=new THREE.PointLight(color,30,5.5,2);light.position.set(0,.42,0);r.group.add(light);r.light=light;
   const shield=new THREE.Mesh(bubbleGeometry,new THREE.MeshBasicMaterial({color:0x7aeaff,transparent:true,opacity:.13,depthWrite:false,wireframe:true}));shield.position.y=1;shield.scale.set(1.35,1.23,1.55);shield.visible=false;r.group.add(shield);r.shieldMesh=shield;
   r.jets=[];for(const side of [-1,1]){
     const jet=new THREE.Mesh(jetGeometry,new THREE.MeshBasicMaterial({color:0x8bbcff,transparent:true,opacity:.88,depthWrite:false,blending:THREE.AdditiveBlending}));jet.rotation.x=-Math.PI/2;jet.position.set(side*.3,.4,-r.halfLength-.35);jet.visible=false;r.group.add(jet);r.jets.push(jet);
@@ -123,17 +125,25 @@ function disposeTrack(group){
 }
 async function selectTrack(id,fromNetwork=false){
   if(online?.isGuest&&!fromNetwork)return;
-  if(!ready||phase!=='select'||id===selectedTrackId)return;
+  if(!ready||phase!=='select'||id===selectedTrackId||!TRACKS.some(t=>t.id===id))return;
   online?.selectionChanged({track:id,loaded:false});
   ready=false;$('startRace').disabled=true;$('loadLabel').textContent='Меняем трассу…';
   for(const b of $('trackGrid').querySelectorAll('button'))b.disabled=true;
   for(const b of $('difficultyGrid').querySelectorAll('button'))b.disabled=true;
+  const previous={data:trackData,group:trackGroup,items,id:selectedTrackId};let candidate=null,nextItems=null;
   try{
-    const data=await (await fetch(`./assets/${id}-route.json`,{cache:'no-store'})).json(),group=await loadTrack(data,id);
-    configureTrack(data);items.dispose();if(trackGroup)disposeTrack(trackGroup);trackGroup=group;scene.add(group);
-    selectedTrackId=id;localStorage.setItem('neon-track',id);items=createRaceItems({THREE,scene,route,racers,getPlayer:()=>player,getTime:()=>raceTime,notify,sound:sfx,onPickup:showPickupFlash,isHuman,onEvent:event=>online?.event(event)});
-    ready=true;resetGrid();updateTrackMenu();$('loadLabel').textContent='Готово · '+TRACKS.find(t=>t.id===id).name;
-  }catch(error){console.error(error);ready=true;notify('Не удалось загрузить выбранную трассу');$('loadLabel').textContent='Выбери трассу ещё раз.';}
+    const response=await fetch(`./assets/${id}-route.json`,{cache:'no-store'});if(!response.ok)throw Error('Track data '+response.status);
+    const data=await response.json();candidate=await loadTrack(data,id);
+    configureTrack(data);scene.remove(previous.group);scene.add(candidate);
+    nextItems=createRaceItems({THREE,scene,route,racers,getPlayer:()=>player,getTime:()=>raceTime,notify,sound:sfx,onPickup:showPickupFlash,isHuman,onEvent:event=>online?.event(event)});items=nextItems;
+    await prepareGraphics();
+    previous.items.dispose();disposeTrack(previous.group);trackGroup=candidate;
+    selectedTrackId=id;localStorage.setItem('neon-track',id);ready=true;resetGrid();updateTrackMenu();$('loadLabel').textContent='Готово · '+TRACKS.find(t=>t.id===id).name;
+  }catch(error){
+    console.error(error);nextItems?.dispose();if(candidate)disposeTrack(candidate);
+    configureTrack(previous.data);trackGroup=previous.group;scene.add(trackGroup);items=previous.items;selectedTrackId=previous.id;
+    ready=true;resetGrid();updateTrackMenu();notify('Не удалось загрузить выбранную трассу');$('loadLabel').textContent='Предыдущая трасса готова. Можно повторить выбор.';
+  }
   $('startRace').disabled=false;for(const b of $('trackGrid').querySelectorAll('button'))b.disabled=false;
   for(const b of $('difficultyGrid').querySelectorAll('button'))b.disabled=false;
   online?.selectionChanged();online?.render();
@@ -168,9 +178,16 @@ async function loadAll(){
         hit:new THREE.Vector3(),radius:Math.max(.45,Math.min(1.05,size.x*scale*.47)),halfLength:size.z*scale*.5,y:0,verticalSpeed:0,lastFloor:0,grounded:true,onRoad:true,finished:false};
       gltf.animations.forEach(clip=>r.actions[clip.name]=r.mixer.clipAction(clip));initRacerRules(r);resetDrift(r);createAnimation(r);addKartLights(r);racers.push(r);
     }
-    items=createRaceItems({THREE,scene,route,racers,getPlayer:()=>player,getTime:()=>raceTime,notify,sound:sfx,onPickup:showPickupFlash,isHuman,onEvent:event=>online?.event(event)});ready=true;
+    items=createRaceItems({THREE,scene,route,racers,getPlayer:()=>player,getTime:()=>raceTime,notify,sound:sfx,onPickup:showPickupFlash,isHuman,onEvent:event=>online?.event(event)});
+    await prepareGraphics();ready=true;
     $('loadLabel').textContent='Все гонщики готовы';$('loadFill').style.width='100%';$('startRace').disabled=false;$('podiumPreview').disabled=false;$('startRace').textContent='НА СТАРТ';for(const b of [...$('trackGrid').querySelectorAll('button'),...$('difficultyGrid').querySelectorAll('button')])b.disabled=false;selectHero(selectedId);if(online?.room)await handleOnlineRoom(online.room,online.isHost?'host':'guest');online?.selectionChanged();
   }catch(error){console.error(error);$('loadLabel').textContent='Не удалось загрузить гонку. Обнови страницу и проверь соединение.';$('loadLabel').classList.add('error');}
+}
+async function prepareGraphics(){
+  $('loadLabel').textContent='Готовим гонку…';
+  await prepareRaceGraphics({THREE,renderer,scene,camera,racers,items,onProgress:progress=>{$('loadFill').style.width=`${92+8*progress}%`;}});
+  // Do not carry loading time into the first countdown frame.
+  clock.getDelta();
 }
 function sampleDistance(distance){const u=((distance/LENGTH)%1+1)%1,p=route.getPointAt(u),t=route.getTangentAt(u);return {u,p,t,left:new THREE.Vector3(t.z,0,-t.x).normalize()};}
 function placeAI(r,dt=0,snap=false){
@@ -365,8 +382,13 @@ function updateKartVisuals(dt){
     r.model.position.y+=(r.driftHop>0?Math.sin(r.driftHop/.24*Math.PI)*.12:0);
     const visible=!player||r===player||r.group.position.distanceTo(player.group.position)<155;r.group.visible=visible;r.glow.visible=visible;
     if(visible){r.mixer.update(dt*(.9+Math.abs(r.currentSpeed)/racerTuning(r).maxSpeed*.3));const surface=surfaceFor(r);if(surface.supported===false)r.glow.visible=false;r.glow.position.copy(r.group.position);r.glow.position.y=surface.height+.015;r.glow.rotation.z=-r.heading;r.glow.material.opacity=clamp(.72-(r.group.position.y-surface.height)*.12,.12,.72);}
-    r.light.intensity=r.boosting?65:30;r.shieldMesh.visible=r.shieldTime>0;r.shieldMesh.rotation.y+=dt*.5;
+    r.shieldMesh.visible=r.shieldTime>0;r.shieldMesh.rotation.y+=dt*.5;
     for(const jet of r.jets){jet.visible=r.boosting;jet.scale.y=.8+Math.sin(worldTime*40+r.index)*.15+(Math.abs(r.currentSpeed)/racerTuning(r).boostSpeed)*.6;}
+  }
+  const lit=player?[player,...racers.filter(r=>r!==player&&r.group.visible).sort((a,b)=>a.group.position.distanceToSquared(player.group.position)-b.group.position.distanceToSquared(player.group.position))]:[];
+  for(let i=0;i<kartLights.length;i++){
+    const light=kartLights[i],r=lit[i];light.intensity=r?(r.boosting?65:30):0;
+    if(r){light.color.set(r.hero.color);light.position.copy(r.group.position);light.position.y+=.42;}
   }
 }
 function tick(){

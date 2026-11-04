@@ -13,6 +13,7 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
   const random=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return (seed>>>0)/4294967296;};
   const clamp=THREE.MathUtils.clamp;
   const basic=(color,extra={})=>new THREE.MeshBasicMaterial({color,...extra});
+  const pickupTemplates=new Map(),trapTemplates=new Map(),effectPool={flash:[],ring:[]},allEffects=[];let rocketTemplate=null;
   const cubeGeo=new THREE.BoxGeometry(.84,.84,.84),sphereGeo=new THREE.SphereGeometry(1,14,10),ringGeo=new THREE.RingGeometry(.82,1,40);
   const pickupMaterial=basic(0x7964ff,{transparent:true,opacity:.88}),edgeMaterial=new THREE.LineBasicMaterial({color:0xb5fcff});
   const edgeGeo=new THREE.EdgesGeometry(cubeGeo),trapMaterial=new THREE.MeshStandardMaterial({color:0xc84145,roughness:.5,emissive:0x731228,emissiveIntensity:.45});
@@ -39,8 +40,19 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
     }
   }
   function flash(position,radius,color=0xff9563){
-    const mesh=new THREE.Mesh(sphereGeo,basic(color,{transparent:true,opacity:.65,depthWrite:false,blending:THREE.AdditiveBlending}));mesh.position.copy(position);scene.add(mesh);effects.push({mesh,life:.48,total:.48,radius});
-    const ring=new THREE.Mesh(ringGeo,basic(color,{transparent:true,opacity:.85,depthWrite:false,side:THREE.DoubleSide}));ring.rotation.x=-Math.PI/2;ring.position.copy(position);ring.position.y-=.3;scene.add(ring);effects.push({mesh:ring,life:.6,total:.6,radius:radius*1.2});burst(position,color,32);
+    const mesh=takeEffect('flash',color);mesh.position.copy(position);scene.add(mesh);effects.push({mesh,life:.48,total:.48,radius});
+    const ring=takeEffect('ring',color);ring.rotation.x=-Math.PI/2;ring.position.copy(position);ring.position.y-=.3;scene.add(ring);effects.push({mesh:ring,life:.6,total:.6,radius:radius*1.2});burst(position,color,32);
+  }
+  function takeEffect(kind,color){
+    let mesh=effectPool[kind].pop();
+    if(!mesh){mesh=new THREE.Mesh(kind==='ring'?ringGeo:sphereGeo,basic(color,{transparent:true,depthWrite:false,side:kind==='ring'?THREE.DoubleSide:THREE.FrontSide,blending:kind==='ring'?THREE.NormalBlending:THREE.AdditiveBlending}));mesh.userData.effectKind=kind;allEffects.push(mesh);}
+    mesh.material.color.set(color);mesh.material.opacity=.65;mesh.position.set(0,0,0);mesh.rotation.set(0,0,0);mesh.scale.setScalar(1);return mesh;
+  }
+  function releaseEffect(mesh){scene.remove(mesh);effectPool[mesh.userData.effectKind].push(mesh);}
+  // Keep materials alive between explosions, avoiding shader churn and leaks.
+  for(const kind of ['flash','ring']){
+    const meshes=Array.from({length:12},()=>takeEffect(kind,0xffffff));
+    effectPool[kind].push(...meshes);
   }
   function hurt(r,{slow=1.8,stun=.3,oil=0,force=.54,owner=null,color=0xff9166}={}){
     if(consumeShield(r)){flash(r.group.position.clone().add(new THREE.Vector3(0,.8,0)),1.7,0x8aeeff);if(r===getPlayer()){notify('ЩИТ ПРИНЯЛ УДАР','#8aeeff');sound('shieldBreak');}return false;}
@@ -55,10 +67,14 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
     for(const r of racers)if(Math.abs(r.group.position.y-position.y)<3&&Math.hypot(r.group.position.x-position.x,r.group.position.z-position.z)<radius)hurt(r,{owner,slow:2,stun:.48,force:.48});
   }
   function makePickup(position,kind=null){
-    const mesh=new THREE.Group(),cube=new THREE.Mesh(cubeGeo,pickupMaterial);mesh.add(cube,new THREE.LineSegments(edgeGeo,edgeMaterial));
-    const plane=new THREE.Mesh(new THREE.PlaneGeometry(.65,.65),kind?basic(0xffffff,{map:labelTexture(ITEM_BY_ID[kind].symbol),transparent:true,side:THREE.DoubleSide}):questionMaterial);plane.position.z=.435;mesh.add(plane);mesh.position.copy(position);mesh.position.y+=1.05;scene.add(mesh);
+    if(!pickupTemplates.has(kind)){
+      const template=new THREE.Group();template.add(new THREE.Mesh(cubeGeo,pickupMaterial),new THREE.LineSegments(edgeGeo,edgeMaterial));
+      const plane=new THREE.Mesh(pickupPlaneGeo,kind?basic(0xffffff,{map:labelTexture(ITEM_BY_ID[kind].symbol),transparent:true,side:THREE.DoubleSide}):questionMaterial);plane.position.z=.435;template.add(plane);pickupTemplates.set(kind,template);
+    }
+    const mesh=pickupTemplates.get(kind).clone();mesh.position.copy(position);mesh.position.y+=1.05;scene.add(mesh);
     return mesh;
   }
+  const pickupPlaneGeo=new THREE.PlaneGeometry(.65,.65);
   for(const {distance,lane} of pickupLayout(route.length,route.width)){
     const p=at(distance,lane);p.y=floorAt(p,distance/route.length);
     if(route.physical&&!route.surfaceAt(p,sampleAt(distance/route.length)).supported)continue;
@@ -71,7 +87,7 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
     for(const other of racers){if(other===r||other.finished)continue;const gap=(((other.u-r.u)*route.length*direction)%route.length+route.length)%route.length;if(gap>2&&gap<bestGap){bestGap=gap;best=other;}}
     return best;
   }
-  function trapMesh(kind){
+  function buildTrapMesh(kind){
     const root=new THREE.Group();let mesh;
     if(kind==='tnt'){
       mesh=new THREE.Group();mesh.add(new THREE.Mesh(new THREE.BoxGeometry(.95,.82,.9),trapMaterial));const text=new THREE.Mesh(new THREE.PlaneGeometry(.8,.45),tntLabel);text.position.z=.46;mesh.add(text);mesh.position.y=.42;
@@ -83,6 +99,7 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
     }
     root.add(mesh);return root;
   }
+  function trapMesh(kind){if(!trapTemplates.has(kind))trapTemplates.set(kind,buildTrapMesh(kind));return trapTemplates.get(kind).clone();}
   function spawnTrap(r,kind){
     const distance=r.distance-r.halfLength-2.2,lane=clamp(r.lane,-route.width*.4,route.width*.4),position=at(distance,lane),u=((distance/route.length)%1+1)%1;
     position.y=floorAt(position,u)+.08;const mesh=trapMesh(kind);mesh.position.copy(position);
@@ -91,10 +108,11 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
     if(traps.length>65){scene.remove(traps.shift().mesh);}
   }
   function rocketMesh(){
+    if(rocketTemplate)return rocketTemplate.clone();
     const mesh=new THREE.Group();
     const body=new THREE.Mesh(new THREE.CylinderGeometry(.15,.15,.8,10),basic(0xe9faff));body.rotation.x=Math.PI/2;mesh.add(body);
     const nose=new THREE.Mesh(new THREE.ConeGeometry(.16,.35,10),basic(0xff815b));nose.rotation.x=Math.PI/2;nose.position.z=.55;mesh.add(nose);
-    const glow=new THREE.Mesh(new THREE.SphereGeometry(.13,8,6),basic(0x76e9ff));glow.position.z=-.5;mesh.add(glow);return mesh;
+    const glow=new THREE.Mesh(new THREE.SphereGeometry(.13,8,6),basic(0x76e9ff));glow.position.z=-.5;mesh.add(glow);rocketTemplate=mesh;return mesh.clone();
   }
   function launchRocket(r,direction){
     const target=findTarget(r,direction),mesh=rocketMesh();scene.add(mesh);
@@ -172,7 +190,7 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
     }
     const now=getTime();for(const pick of pickups){pick.mesh.rotation.set(.15,now*1.5+pick.phase,.12);pick.mesh.position.y=pick.base.y+1.05+Math.sin(now*2+pick.phase)*.12;}
     for(const pick of loose){pick.mesh.rotation.y+=dt*1.6;pick.mesh.position.y=pick.base.y+1+Math.sin(now*3)*.12;}
-    for(let i=effects.length-1;i>=0;i--){const effect=effects[i];effect.life-=dt;const progress=1-effect.life/effect.total;effect.mesh.scale.setScalar(.2+progress*effect.radius);effect.mesh.material.opacity=Math.max(0,(1-progress)*.65);if(effect.life<=0){scene.remove(effect.mesh);effect.mesh.material.dispose();effects.splice(i,1);}}
+    for(let i=effects.length-1;i>=0;i--){const effect=effects[i];effect.life-=dt;const progress=1-effect.life/effect.total;effect.mesh.scale.setScalar(.2+progress*effect.radius);effect.mesh.material.opacity=Math.max(0,(1-progress)*.65);if(effect.life<=0){releaseEffect(effect.mesh);effects.splice(i,1);}}
     trailTimer+=dt;
     if(trailTimer>.035){
       trailTimer=0;for(const rocket of rockets)burst(rocket.mesh.position,0x8ae8ff,1);
@@ -192,11 +210,11 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
   }
   function reset(){
     for(const object of replicas.values())removeReplica(object);replicas.clear();networkIds=new WeakMap();networkCounter=0;
-    for(const list of [traps,rockets,effects,loose]){for(const object of list)scene.remove(object.mesh);list.length=0;}particles.length=0;seed=0x7a91bc31;
+    for(const list of [traps,rockets,effects,loose]){for(const object of list){if(list===effects)releaseEffect(object.mesh);else scene.remove(object.mesh);}list.length=0;}particles.length=0;seed=0x7a91bc31;
     for(const pickup of pickups){pickup.respawn=0;pickup.mesh.visible=true;}
   }
   function dispose(){
-    const roots=[points,...pickups.map(p=>p.mesh),...[traps,rockets,effects,loose].flatMap(list=>list.map(o=>o.mesh))];
+    const roots=[points,...pickupTemplates.values(),...trapTemplates.values(),...allEffects,...(rocketTemplate?[rocketTemplate]:[]),...replicas.values(),...pickups.map(p=>p.mesh),...[traps,rockets,effects,loose].flatMap(list=>list.map(o=>o.mesh))];
     const geometries=new Set([cubeGeo,sphereGeo,ringGeo,edgeGeo,particleGeometry]),materials=new Set([pickupMaterial,edgeMaterial,trapMaterial,mineMaterial,oilMaterial,questionMaterial,tntLabel]),textures=new Set();
     for(const root of roots){scene.remove(root);root.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);});}
     reset();for(const p of pickups)scene.remove(p.mesh);
@@ -204,13 +222,7 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
     for(const resource of [...geometries,...materials,...textures])resource.dispose();
   }
   function removeReplica(mesh){
-    scene.remove(mesh);
-    const sharedGeometries=new Set([cubeGeo,sphereGeo,ringGeo,edgeGeo,particleGeometry]);
-    const sharedMaterials=new Set([pickupMaterial,edgeMaterial,trapMaterial,mineMaterial,oilMaterial,questionMaterial,tntLabel]);
-    mesh.traverse(o=>{
-      if(o.geometry&&!sharedGeometries.has(o.geometry))o.geometry.dispose();
-      if(o.material)for(const m of Array.isArray(o.material)?o.material:[o.material])if(!sharedMaterials.has(m))m.dispose();
-    });
+    if(mesh.userData.effectKind)releaseEffect(mesh);else scene.remove(mesh);
   }
   function networkSnapshot(){
     const objects=[];
@@ -234,7 +246,7 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
         if(['tnt','mine','oil'].includes(object.kind))mesh=trapMesh(object.kind);
         else if(object.kind==='rocket')mesh=rocketMesh();
         else if(object.kind==='loose')mesh=makePickup(new THREE.Vector3(),object.item);
-        else mesh=new THREE.Mesh(object.kind==='ring'?ringGeo:sphereGeo,basic(object.color??0xff9563,{transparent:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending}));
+        else mesh=takeEffect(object.kind==='ring'?'ring':'flash',object.color??0xff9563);
         scene.add(mesh);replicas.set(object.id,mesh);
       }
       if(object.kind==='rocket'&&!paused){
@@ -247,5 +259,10 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
     }
     for(const [id,mesh] of replicas)if(!alive.has(id)){removeReplica(mesh);replicas.delete(id);}
   }
-  return {step,animate,reset,use,burst,dispose,networkSnapshot,applyNetwork,get pickups(){return pickups;},get hazards(){return traps;}};
+  function warmupObjects(){
+    for(const kind of ITEM_TYPES.map(item=>item.id)){const mesh=makePickup(new THREE.Vector3(),kind);scene.remove(mesh);}
+    for(const kind of ['tnt','mine','oil'])trapMesh(kind);rocketMesh();
+    return [...pickupTemplates.values(),...trapTemplates.values(),rocketTemplate,...allEffects];
+  }
+  return {step,animate,reset,use,burst,dispose,warmupObjects,networkSnapshot,applyNetwork,get pickups(){return pickups;},get hazards(){return traps;}};
 }
