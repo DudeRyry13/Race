@@ -1,8 +1,11 @@
 import http from 'node:http';
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {WebSocketServer,WebSocket} from 'ws';
+import {fileURLToPath} from 'node:url';
+import {createStaticHandler} from './static-files.mjs';
 
 const PROTOCOL='babylon-online-v1',PORT=Number(process.env.PORT)||3000,rooms=new Map(),limits=new Map();
+const serveStatic=createStaticHandler(fileURLToPath(new URL('./public/',import.meta.url)));
 const heroes=new Set(['mensari','monster','se1t','textured_00002','textured_00004','haakon','leona','mara','geekaton']);
 const tracks=new Set(['app1','app2','app3']),levels=new Set(['easy','medium','hard']);
 const secret=bytes=>randomBytes(bytes).toString('hex');
@@ -31,7 +34,7 @@ function originFor(req){
 const server=http.createServer((req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;
   if(req.method==='OPTIONS')return reply(res,204,{});
-  if((path==='/'||path==='/health')&&req.method==='GET')return reply(res,200,{game:'Babylon Racing',protocol:PROTOCOL,status:'ready',networkVersion:2,region:process.env.GAME_REGION??null});
+  if(path==='/health'&&req.method==='GET')return reply(res,200,{game:'Babylon Racing',protocol:PROTOCOL,status:'ready',networkVersion:2,webVersion:18,region:process.env.GAME_REGION??null});
   if(path==='/api/online/create'&&req.method==='POST'){
     const ip=(req.headers['x-forwarded-for']??req.socket.remoteAddress??'local').toString().split(',')[0],now=Date.now();
     const entry=limits.get(ip)??{at:now,count:0};if(now-entry.at>60000){entry.at=now;entry.count=0;}limits.set(ip,entry);
@@ -40,9 +43,9 @@ const server=http.createServer((req,res)=>{
     rooms.set(room.id,room);
     const origin=originFor(req),wsOrigin=origin.replace(/^http/,'ws');
     return reply(res,200,{protocol:PROTOCOL,hostUrl:wsOrigin+'/ws?role=host&room='+room.id+'&token='+room.hostKey,
-      invite:origin+'/#room='+room.id+'&key='+room.key});
+      invite:origin+'/viewer/#room='+room.id+'&key='+room.key});
   }
-  reply(res,404,{error:'not_found'});
+  serveStatic(req,res,new URL(req.url,'http://localhost')).catch(()=>{if(!res.headersSent)reply(res,500,{error:'file_error'});else res.destroy();});
 });
 const wss=new WebSocketServer({noServer:true,maxPayload:196608,perMessageDeflate:false});
 server.on('upgrade',(req,socket,head)=>{

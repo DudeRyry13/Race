@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ru" data-hosted="true">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Babylon Racing</title><link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./neon.css?build=web-v18">
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.js","three/addons/":"./vendor/addons/"}}</script>
+</head>
+<body data-phase="select">
+  <section class="selection screen" id="selection" aria-label="Выбор гонщика">
+    <header class="lobby-header"><div class="brand"><i></i>BABYLON<span>RACING</span></div><span class="lobby-badge" id="trackBadge">APP1 · НЕОНОВЫЙ ГОРОД</span></header>
+    <main class="lobby-main">
+      <div class="hero-stage"><div class="stage-halo"></div><div class="stage-lines"></div><img id="heroPreview" src="./assets/selection/mensari.png" alt="Менсарий рядом с машиной"><span class="stage-caption">ТВОЯ МАШИНА. ТВОЙ ЗАЕЗД.</span></div>
+      <div class="hero-info"><p class="eyebrow">ВЫБЕРИ ГОНЩИКА</p><h1 id="heroName">Менсарий</h1><div class="hero-tag" id="heroTag">Золотой карт</div><p class="hero-description" id="heroDescription"></p>
+        <div class="race-specs"><div><strong id="statSpeed">151</strong><span>СКОРОСТЬ · КМ/Ч</span><div class="stat-bar"><i id="statSpeedBar"></i></div></div><div><strong id="statAcceleration">3 / 5</strong><span>РАЗГОН</span><div class="stat-bar"><i id="statAccelerationBar"></i></div></div><div><strong id="statDrift">3 / 5</strong><span>ДРИФТ</span><div class="stat-bar"><i id="statDriftBar"></i></div></div></div>
+        <p class="hero-turbo" id="heroTurbo"></p>
+        <details class="hero-lore"><summary>БАЙКА ИЗ ПАДДОКА</summary><p id="heroLore"></p></details>
+        <p class="fair-play"><span>◇</span> Характеристики героя одинаковы у игрока и бота.</p>
+        <button class="start-button" id="startRace" type="button" disabled>ПОДГОТОВКА ЗАЕЗДА…</button>
+        <div class="load-track"><div id="loadFill"></div></div><p class="load-label" id="loadLabel">Загружаем новую трассу…</p>
+        <p class="start-hint">← → выбрать героя <span>·</span> ENTER на старт <span>·</span> <button class="podium-preview" id="podiumPreview" type="button" disabled>Подиум</button></p>
+      </div>
+    </main>
+    <nav class="hero-grid" id="heroGrid" aria-label="Гонщики"></nav>
+    <section class="track-selection" aria-label="Выбор трассы"><p class="eyebrow">ВЫБЕРИ ТРАССУ</p><div class="track-grid" id="trackGrid"></div></section>
+    <section class="difficulty-selection" aria-label="Сложность"><p class="eyebrow">СЛОЖНОСТЬ</p><div class="difficulty-grid" id="difficultyGrid"></div></section>
+    <section class="online-panel glass" aria-label="Онлайн на двоих"><p class="eyebrow">ОНЛАЙН · ДВА ИГРОКА</p><label class="online-server-label">Адрес своего сервера <input id="onlineServer" type="url" value="https://race-yx4w.onrender.com" placeholder="https://race-yx4w.onrender.com"><small>Адрес сервера Render или другого хостинга с Node.js.</small></label><div class="online-actions"><button id="onlineCreate" type="button">Создать комнату</button><input id="onlineAddress" type="url" placeholder="Ссылка комнаты друга" aria-label="Ссылка комнаты"><button id="onlineJoin" type="button">Подключиться</button><button id="onlineReady" type="button" hidden>ГОТОВ</button><button id="onlineLeave" type="button" hidden>Выйти из комнаты</button></div><div class="online-share"><input id="onlineInvite" readonly hidden aria-label="Приглашение в комнату"><button id="onlineCopy" type="button" hidden>Копировать ссылку</button></div><p id="onlineStatus" role="status">Одиночная игра</p><small id="onlinePlayers"></small></section>
+    <footer class="lobby-footer"><span>3 КРУГА · КОНТАКТНЫЕ ГОНКИ · ЛОВУШКИ И РАКЕТЫ</span><div class="item-legend" id="itemLegend"></div></footer>
+    <p class="music-credit">Музыка: <a href="https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1400011" target="_blank" rel="noopener">Monkeys Spinning Monkeys — Kevin MacLeod</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> · зациклено</p>
+  </section>
+  <div class="race-hud" id="raceHud" hidden>
+    <div id="onlineLatency" class="online-latency glass" hidden></div>
+    <div class="top-status glass"><div class="place"><strong id="racePlace">4</strong><span id="raceTotal">/ 9</span></div><div class="lap"><small>КРУГ</small><b id="raceLap">1 / 3</b></div><div class="timer"><small>ВРЕМЯ</small><b id="raceClock">0:00.00</b></div></div>
+    <canvas id="map" width="440" height="240" aria-label="Миникарта гонки"></canvas>
+    <div class="speed-hud glass"><small id="raceState">APP1</small><div><strong id="speed">0</strong><span>км/ч</span></div><div class="energy-label"><span>ЗАПАС ТУРБО</span><b id="nitroText">100%</b></div><div class="nitro-track"><i id="nitroFill"></i></div></div>
+    <div class="item-hud glass" id="itemSlot"><div class="item-icon" id="itemSymbol">?</div><div class="item-copy"><small>ПРЕДМЕТ</small><strong id="itemName">Подбери ящик</strong><p id="itemDescription">Светящиеся ящики дают один из семи предметов.</p></div><div class="item-actions"><button id="useItem" type="button" disabled>E <span>Выстрел / предмет</span></button><button id="dropItem" type="button" disabled>Q <span>Назад</span></button></div></div>
+    <button class="boost-button" id="boostBtn" type="button"><span>»</span><b>ТУРБО</b><small>ДЕРЖИ ПРОБЕЛ</small></button>
+    <div class="drift-hud glass"><small>ЗАРЯД ДРИФТА</small><div class="drift-track"><i id="driftFill"></i></div><b id="driftText">SHIFT + ПОВОРОТ</b><button id="driftBtn" type="button">ДРИФТ <span>SHIFT</span></button></div>
+    <button class="settings-button glass" id="settingsBtn" type="button" aria-label="Пауза и настройки">Ⅱ</button>
+    <div class="controls-hint">WASD / стрелки — ехать <span>·</span> ПРОБЕЛ — турбо <span>·</span> SHIFT + поворот — дрифт <span>·</span> E — выстрел <span>·</span> Q — сбросить <span>·</span> C — камера</div>
+    <div class="touch-controls" id="touchControls"><button data-key="KeyA" aria-label="Влево">←</button><button data-key="KeyD" aria-label="Вправо">→</button><button data-key="KeyW" aria-label="Газ">↑</button><button data-key="KeyS" aria-label="Тормоз">■</button></div>
+    <div class="speed-lines" aria-hidden="true"></div>
+  </div>
+  <aside class="settings-panel glass" id="settingsPanel" hidden><p class="eyebrow">ПАУЗА</p><h2>Пит-стоп</h2><button class="accent" id="resumeRace" type="button">Продолжить</button><button id="cameraBtn" type="button">Камера: сзади</button><label><input id="sound" type="checkbox" checked>Мотор и эффекты</label><label><input id="music" type="checkbox" checked>Музыка</label><label><input id="shadows" type="checkbox">Дополнительные тени</label><button id="restartRace" type="button">Новый старт · R</button><button id="returnToSelect" type="button">Выбрать гонщика</button><small id="fps">— FPS</small></aside>
+  <div class="pickup-flash" id="pickupFlash" hidden aria-live="polite"><div class="pickup-flash-box"><strong id="pickupFlashIcon">?</strong></div><span id="pickupFlashName"></span></div>
+  <div class="countdown" id="countdown" hidden aria-live="assertive"><span id="countdownValue">8</span></div>
+  <div class="intro-racer" id="introRacer" aria-live="polite"></div>
+  <div class="toast" id="toast" aria-live="polite"></div>
+  <section class="results screen podium-results" id="results" hidden><header class="podium-heading"><p class="eyebrow">ПОБЕДНЫЙ ПОДИУМ</p><h2 id="resultTitle">ФИНИШ</h2><p id="resultTime"></p></header><div class="result-card glass"><ol id="resultList"></ol><div class="result-buttons"><button class="start-button" id="raceAgain" type="button">ЕЩЁ ЗАЕЗД</button><button class="secondary" id="changeHero" type="button">Выбрать героя и трассу</button></div></div></section>
+  <script type="module" src="./neon-race.js?build=web-v18"></script>
+</body></html>

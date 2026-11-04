@@ -1,9 +1,9 @@
 {
-  "name": "babylon-racing-rooms",
-  "version": "1.0.0",
+  "name": "babylon-racing",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "engines": {"node": ">=22"},
-  "scripts": {"start": "node server.mjs"},
+  "scripts": {"build": "node scripts/precompress.mjs", "start": "node server.mjs"},
   "dependencies": {"ws": "8.22.1"}
 }
