@@ -1,7 +1,7 @@
 import {createMotionBuffer} from './online-motion.mjs?build=online-v17';
 export const RACER_FIELDS=['currentSpeed','heading','motionHeading','steering','distance','u','nearest','lastU','lane','laneTarget','laneVelocity',
   'y','verticalSpeed','lastFloor','grounded','onRoad','finished','energy','boosting','item','itemSince','turboTime','shieldTime','slowTime','oilTime','stunTime',
-  'itemCooldown','hitFlash','boostLatch','padCooldown','nitroLocked','drifting','driftAngle','driftSign','driftCharge','driftTier','driftHop','pathCurvature'];
+  'itemCooldown','hitFlash','boostLatch','padCooldown','nitroLocked','drifting','driftAngle','driftSign','driftCharge','driftTier','driftHop','pathCurvature','surfaceKind'];
 const number=n=>Number.isFinite(n)?Math.round(n*10000)/10000:0;
 const previousMotion=new WeakMap(),angle=n=>Math.atan2(Math.sin(n),Math.cos(n));
 export function packRacer(r,now=performance.now()/1000){

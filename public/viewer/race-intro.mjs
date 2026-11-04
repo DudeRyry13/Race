@@ -1,6 +1,6 @@
 // Eight-second starting sequence: grid, faces, then orbit behind the player.
 export const RACE_INTRO_SECONDS=8;
-export const CHASE_CAMERA={distance:8.8,height:4.2,speedDistance:1.9,speedHeight:.5};
+export const CHASE_CAMERA={distance:8.0,height:4.2,speedDistance:1.9,speedHeight:.5};
 export function createRaceIntro({THREE,camera,getRacers,getPlayer,onName}){
   let order=[];
   const up=new THREE.Vector3(0,1,0),position=new THREE.Vector3(),look=new THREE.Vector3();

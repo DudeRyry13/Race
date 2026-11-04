@@ -1,3 +1,4 @@
+import {createTrackSurface} from './track-surface.mjs?build=surfaces-v22';
 export function createTrackRoute(THREE,data){
   const points=data.points.map(p=>new THREE.Vector3(...p)),cumulative=[0];
   for(let i=0;i<points.length;i++)cumulative.push(cumulative[i]+points[i].distanceTo(points[(i+1)%points.length]));
@@ -24,7 +25,14 @@ export function createTrackRoute(THREE,data){
   function getTangentAt(u,target=new THREE.Vector3()){
     return target.copy(getPointAt(u+.65/length)).sub(getPointAt(u-.65/length)).normalize();
   }
+  const baked=data.terrain?createTrackSurface(THREE,data,{points,cumulative,segmentAt,getTangentAt}):null;
   function surfaceAt(position,sample,onRoad=true){
+    if(baked){
+      const distance=segmentAt(sample.u).distance,gap=gaps.find(g=>distance>=g.start&&distance<g.end),road=baked.roadAt(position,sample);
+      if(road)return {...road,roadHeight:road.height};
+      const ground=baked.terrainAt(position);
+      return {...(ground??{height:data.groundHeight+.04,gx:0,gz:0,bank:0,kind:'air',onRoad:false,supported:false,physical:true}),roadHeight:sample.p.y+.04,gap};
+    }
     if(!onRoad)return {height:data.groundHeight+.04,roadHeight:sample.p.y+.04,gx:0,gz:0,onRoad:false,supported:false,physical};
     const t=sample.t??getTangentAt(sample.u),horizontal=t.x*t.x+t.z*t.z||1;
     const {low,blend,distance}=segmentAt(sample.u),bank=data.banks?THREE.MathUtils.lerp(data.banks[low],data.banks[(low+1)%points.length],blend):0;
@@ -53,15 +61,20 @@ export function createTrackRoute(THREE,data){
     const d=wrap(u)*length,gap=gaps.find(g=>(d-g.start+length)%length<g.end-g.start+85);
     return wrap((gap?gap.recover:d-12)/length);
   }
+  function roadSurfaceAt(position,sample){return baked?baked.roadAt(position,sample,{placement:true}):surfaceAt(position,sample);}
+  function canLeaveRoad(u,lane){const distance=wrap(u)*length;return (data.arenaOpenings??[]).some(g=>distance>=g.start&&distance<=g.end&&Math.sign(lane)===g.side);}
   return {name:data.name,width:data.width,groundHeight:data.groundHeight,worldScale:data.worldScale,points,distances:cumulative,pads,length,gaps,physical,
-    obstacles:data.obstacles??[],getLength:()=>length,getPointAt,getTangentAt,surfaceAt,gapAhead,recoveryAt};
+    obstacles:data.obstacles??[],terrain:data.terrain,barrierHalfWidth:data.barrierHalfWidth,terrainAt:baked?.terrainAt,roadSurfaceAt,canLeaveRoad,getLength:()=>length,getPointAt,getTangentAt,surfaceAt,gapAhead,recoveryAt};
 }
 
 export function stepTrackHeight(body,surface,dt,vx,vz){
   if(surface.physical){
     const slopeVelocity=surface.gx*vx+surface.gz*vz;
-    if(body.grounded&&surface.supported){
-      body.y=surface.height;body.verticalSpeed=slopeVelocity;body.lastFloor=surface.height;return;
+    const change=surface.height-body.y,step=Math.abs(slopeVelocity*dt);
+    const curbStep=surface.kind==='road'&&body.surfaceKind==='sand'?.95:.55;
+    const curbContact=surface.kind==='road'&&body.surfaceKind==='sand'&&change>0&&change<=.95&&body.verticalSpeed<=2;
+    if((body.grounded||curbContact)&&surface.supported&&(!surface.kind||change<=Math.max(curbStep,step+.2)&&change>=-Math.max(.7,step+.25))){
+      body.y=surface.height;body.verticalSpeed=slopeVelocity;body.lastFloor=surface.height;body.grounded=true;return;
     }
     if(body.grounded){
       // A gap has no collision floor. Takeoff follows the Blender ramp tangent.

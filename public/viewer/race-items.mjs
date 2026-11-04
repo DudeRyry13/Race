@@ -11,7 +11,6 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
   const replicas=new Map();let networkIds=new WeakMap(),networkCounter=0;
   let seed=0x7a91bc31;
   const random=()=>{seed^=seed<<13;seed^=seed>>>17;seed^=seed<<5;return (seed>>>0)/4294967296;};
-  const clamp=THREE.MathUtils.clamp;
   const basic=(color,extra={})=>new THREE.MeshBasicMaterial({color,...extra});
   const pickupTemplates=new Map(),trapTemplates=new Map(),effectPool={flash:[],ring:[]},allEffects=[];let rocketTemplate=null;
   const cubeGeo=new THREE.BoxGeometry(.84,.84,.84),sphereGeo=new THREE.SphereGeometry(1,14,10),ringGeo=new THREE.RingGeometry(.82,1,40);
@@ -30,7 +29,22 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
   const dots=document.createElement('canvas');dots.width=32;dots.height=32;const dc=dots.getContext('2d'),gradient=dc.createRadialGradient(16,16,0,16,16,16);gradient.addColorStop(0,'#fff');gradient.addColorStop(.3,'#fff');gradient.addColorStop(1,'#ffffff00');dc.fillStyle=gradient;dc.fillRect(0,0,32,32);
   const points=new THREE.Points(particleGeometry,new THREE.PointsMaterial({size:.23,vertexColors:true,transparent:true,depthWrite:false,map:new THREE.CanvasTexture(dots),blending:THREE.AdditiveBlending}));points.frustumCulled=false;scene.add(points);
   const sampleAt=u=>({p:route.getPointAt(u),t:route.getTangentAt(u),u});
-  function floorAt(position,u){return route.surfaceAt(position,sampleAt(u)).height;}
+  function roadAt(position,u){const s=sampleAt(u);return route.roadSurfaceAt?route.roadSurfaceAt(position,s):route.surfaceAt(position,s);}
+  const up=new THREE.Vector3(0,1,0);
+  function align(mesh,surface,yaw=0){
+    mesh.quaternion.setFromUnitVectors(up,new THREE.Vector3(-(surface.gx??0),1,-(surface.gz??0)).normalize());
+    mesh.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(up,yaw));
+  }
+  function behind(r,distance){return r.group.position.clone().addScaledVector(new THREE.Vector3(Math.sin(r.motionHeading??r.heading),0,Math.cos(r.motionHeading??r.heading)),-distance);}
+  function settle(object,dt,position=object.position){
+    if(object.settled)return;
+    const surface=route.surfaceAt(position,sampleAt(object.u));
+    object.velocityY-=24*dt;position.y+=object.velocityY*dt;
+    if(surface.supported&&position.y<=surface.height+.04&&object.velocityY<=0){
+      position.y=surface.height+.04;object.velocityY=0;object.settled=true;
+      if(object.mesh)align(object.mesh,surface,object.yaw);
+    }
+  }
   function at(distance,lane=0){const u=((distance/route.length)%1+1)%1,s=sampleAt(u),left=new THREE.Vector3(s.t.z,0,-s.t.x).normalize();return s.p.clone().addScaledVector(left,lane);}
   function burst(position,color=0xffa65f,count=24){
     const col=new THREE.Color(color);
@@ -41,7 +55,13 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
   }
   function flash(position,radius,color=0xff9563){
     const mesh=takeEffect('flash',color);mesh.position.copy(position);scene.add(mesh);effects.push({mesh,life:.48,total:.48,radius});
-    const ring=takeEffect('ring',color);ring.rotation.x=-Math.PI/2;ring.position.copy(position);ring.position.y-=.3;scene.add(ring);effects.push({mesh:ring,life:.6,total:.6,radius:radius*1.2});burst(position,color,32);
+    let nearest=0,score=Infinity;
+    for(let i=0;i<route.points.length;i+=3){const p=route.points[i],d=p.distanceToSquared(position);if(d<score){score=d;nearest=i;}}
+    const surface=route.surfaceAt(position,sampleAt(route.distances[nearest]/route.length));
+    if(surface.supported&&Math.abs(surface.height-position.y)<3){
+      const ring=takeEffect('ring',color);align(ring,surface);ring.rotateX(-Math.PI/2);ring.position.copy(position);ring.position.y=surface.height+.07;scene.add(ring);effects.push({mesh:ring,life:.6,total:.6,radius:radius*1.2});
+    }
+    burst(position,color,32);
   }
   function takeEffect(kind,color){
     let mesh=effectPool[kind].pop();
@@ -76,8 +96,9 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
   }
   const pickupPlaneGeo=new THREE.PlaneGeometry(.65,.65);
   for(const {distance,lane} of pickupLayout(route.length,route.width)){
-    const p=at(distance,lane);p.y=floorAt(p,distance/route.length);
-    if(route.physical&&!route.surfaceAt(p,sampleAt(distance/route.length)).supported)continue;
+    const p=at(distance,lane),surface=roadAt(p,distance/route.length);
+    if(!surface?.supported||surface.kind==='sand'||surface.kind==='hazard')continue;
+    p.y=surface.height;
     if(route.obstacles?.some(h=>h.kind==='barrier'&&Math.abs(h.distance-distance)<h.length/2+1.5&&Math.abs(h.lane-lane)<h.width/2+1))continue;
     pickups.push({mesh:makePickup(p),base:p.clone(),distance,lane,respawn:0,phase:random()*6.28});
   }
@@ -101,9 +122,12 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
   }
   function trapMesh(kind){if(!trapTemplates.has(kind))trapTemplates.set(kind,buildTrapMesh(kind));return trapTemplates.get(kind).clone();}
   function spawnTrap(r,kind){
-    const distance=r.distance-r.halfLength-2.2,lane=clamp(r.lane,-route.width*.4,route.width*.4),position=at(distance,lane),u=((distance/route.length)%1+1)%1;
-    position.y=floorAt(position,u)+.08;const mesh=trapMesh(kind);mesh.position.copy(position);
-    scene.add(mesh);traps.push({mesh,kind,distance,lane,position:position.clone(),owner:r,born:getTime(),life:kind==='oil'?13:24,radius:kind==='oil'?2.35:1.25});
+    const distance=r.distance-r.halfLength-2.2,lane=r.lane,position=behind(r,r.halfLength+2.2),u=((distance/route.length)%1+1)%1;
+    position.y+=.15;const mesh=trapMesh(kind);mesh.position.copy(position);
+    const trap={mesh,kind,distance,lane,position:position.clone(),u,yaw:r.heading,velocityY:r.verticalSpeed??0,settled:false,owner:r,born:getTime(),life:kind==='oil'?13:24,radius:kind==='oil'?2.35:1.25};
+    const surface=route.surfaceAt(position,sampleAt(u));
+    if(surface.supported&&Math.abs(position.y-surface.height)<.8){trap.settled=true;trap.position.y=surface.height+.04;align(mesh,surface,r.heading);mesh.position.copy(trap.position);}
+    scene.add(mesh);traps.push(trap);
     if(r===getPlayer())sound('drop');
     if(traps.length>65){scene.remove(traps.shift().mesh);}
   }
@@ -116,16 +140,18 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
   }
   function launchRocket(r,direction){
     const target=findTarget(r,direction),mesh=rocketMesh();scene.add(mesh);
-    const distance=r.distance+direction*2.5,u=((distance/route.length)%1+1)%1,p=at(distance,r.lane),t=route.getTangentAt(u);p.y=floorAt(p,u)+.8;mesh.position.copy(p);mesh.rotation.y=Math.atan2(t.x*direction,t.z*direction);
-    rockets.push({mesh,owner:r,target,direction,distance,lane:r.lane,life:3.4,travel:0});if(r===getPlayer())sound('rocket');
+    const distance=r.distance+direction*2.5,p=behind(r,-direction*2.5);p.y+=.8;
+    const reference=at(distance,r.lane),surface=roadAt(reference,((distance/route.length)%1+1)%1);reference.y=(surface?.height??reference.y)+.8;
+    mesh.position.copy(p);mesh.rotation.y=r.heading+(direction<0?Math.PI:0);
+    rockets.push({mesh,owner:r,target,direction,distance,lane:r.lane,offset:p.clone().sub(reference),life:3.4,travel:0});if(r===getPlayer())sound('rocket');
   }
   function use(r,backward=false){
     if(!r.item||r.itemCooldown>0)return false;
     const kind=r.item;r.item=null;r.itemCooldown=.35;
     onEvent({kind:'use',racer:r.id,item:kind});
     if(backward&&['shield','turbo','emp'].includes(kind)){
-      const distance=r.distance-3.5,p=at(distance,r.lane);p.y=floorAt(p,distance/route.length);
-      loose.push({mesh:makePickup(p,kind),base:p.clone(),kind,born:getTime(),owner:r,life:20});
+      const distance=r.distance-3.5,p=behind(r,3.5);
+      loose.push({mesh:makePickup(p,kind),base:p.clone(),u:((distance/route.length)%1+1)%1,yaw:0,velocityY:r.verticalSpeed??0,settled:false,kind,born:getTime(),owner:r,life:20});
     }else if(['tnt','mine','oil'].includes(kind))spawnTrap(r,kind);
     else if(kind==='rocket')launchRocket(r,backward?-1:1);
     else if(kind==='shield'){r.shieldTime=6;if(r===getPlayer()){notify('ЩИТ ВКЛЮЧЁН','#8aeeff');sound('shield');}}
@@ -154,14 +180,14 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
       if(pick.respawn>0)continue;
       for(const r of racers)if(!r.item&&r.itemCooldown===0&&Math.abs(r.group.position.y-pick.base.y)<1.6&&Math.hypot(r.group.position.x-pick.base.x,r.group.position.z-pick.base.z)<1.25+r.radius){give(r,ITEM_TYPES[Math.floor(random()*ITEM_TYPES.length)].id);pick.respawn=9;pick.mesh.visible=false;break;}
     }
-    for(let i=loose.length-1;i>=0;i--){const pick=loose[i];pick.life-=dt;let taken=false;for(const r of racers)if(!r.item&&r.itemCooldown===0&&(r!==pick.owner||now-pick.born>1.5)&&r.group.position.distanceTo(pick.base)<2){give(r,pick.kind);taken=true;break;}if(taken||pick.life<=0){scene.remove(pick.mesh);loose.splice(i,1);}}
+    for(let i=loose.length-1;i>=0;i--){const pick=loose[i];pick.life-=dt;settle(pick,dt,pick.base);let taken=false;for(const r of racers)if(!r.item&&r.itemCooldown===0&&(r!==pick.owner||now-pick.born>1.5)&&r.group.position.distanceTo(pick.base)<2){give(r,pick.kind);taken=true;break;}if(taken||pick.life<=0||pick.base.y<route.groundHeight-5){scene.remove(pick.mesh);loose.splice(i,1);}}
     for(const r of racers)if(r.padCooldown<=0&&r.grounded)for(const pad of route.pads){
       const dx=r.group.position.x-pad.origin.x,dz=r.group.position.z-pad.origin.z;
       if(Math.abs(r.group.position.y-pad.origin.y)<1.6&&Math.abs(dx*pad.forward.x+dz*pad.forward.z)<pad.length*.5&&Math.abs(dx*pad.forward.z-dz*pad.forward.x)<pad.width*.5){r.turboTime=Math.max(r.turboTime,.95);r.padCooldown=1.4;if(r===getPlayer())sound('turbo');break;}
     }
     for(let i=traps.length-1;i>=0;i--){
-      const trap=traps[i];trap.life-=dt;let remove=trap.life<=0;
-      if(now-trap.born>.7)for(const r of racers){
+      const trap=traps[i];trap.life-=dt;settle(trap,dt);trap.mesh.position.copy(trap.position);let remove=trap.life<=0||trap.position.y<route.groundHeight-5;
+      if(trap.settled&&now-trap.born>.7)for(const r of racers){
         if(r===trap.owner&&now-trap.born<1.4)continue;
         if(Math.abs(r.group.position.y-trap.position.y)>1.8||Math.hypot(r.group.position.x-trap.position.x,r.group.position.z-trap.position.z)>trap.radius+r.radius)continue;
         if(trap.kind==='tnt'){explosion(trap.position.clone().add(new THREE.Vector3(0,.4,0)),5.1,trap.owner);remove=true;break;}
@@ -173,7 +199,7 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
     for(let i=rockets.length-1;i>=0;i--){
       const rocket=rockets[i];rocket.life-=dt;rocket.distance+=rocket.direction*88*dt;rocket.travel+=88*dt;
       if(rocket.target)rocket.lane=THREE.MathUtils.damp(rocket.lane,rocket.target.lane,7,dt);
-      const u=((rocket.distance/route.length)%1+1)%1,p=at(rocket.distance,rocket.lane),t=route.getTangentAt(u);p.y=floorAt(p,u)+.8;
+      const u=((rocket.distance/route.length)%1+1)%1,p=at(rocket.distance,rocket.lane),t=route.getTangentAt(u),surface=roadAt(p,u);p.y=(surface?.height??p.y)+.8;rocket.offset.multiplyScalar(Math.exp(-dt*5));p.add(rocket.offset);
       if(rocket.target&&rocket.target.group.position.distanceTo(p)<12)p.y=THREE.MathUtils.lerp(p.y,rocket.target.group.position.y+.5,.7);
       rocket.mesh.position.copy(p);rocket.mesh.rotation.y=Math.atan2(t.x*rocket.direction,t.z*rocket.direction);
       let hit=null;for(const r of racers)if(r!==rocket.owner&&Math.abs(r.group.position.y-p.y)<2&&Math.hypot(r.group.position.x-p.x,r.group.position.z-p.z)<r.radius+.65){hit=r;break;}
@@ -198,6 +224,9 @@ export function createRaceItems({THREE,scene,route,racers,getPlayer,getTime,noti
         if(!r.group.visible)continue;
         const p=r.group.position.clone().add(new THREE.Vector3(-Math.sin(r.heading)*r.halfLength,.18,-Math.cos(r.heading)*r.halfLength));
         if(r.boosting)burst(p,0x89baff,1);
+        if(r.surfaceKind==='sand'&&r.grounded&&r.currentSpeed>5){
+          burst(p,0xe4bd83,2);for(const dust of particles.slice(-2)){dust.v.multiplyScalar(.35);dust.v.y=.4+random();dust.life=.25+random()*.2;}
+        }
         if(r.drifting){
           const color=r.driftTier>=3?0x8ffff0:r.driftTier>=2?0xff8bcf:r.driftTier>=1?0xffcb6e:0x6e7a91;burst(p,color,2);
           for(const spark of particles.slice(-2)){spark.v.multiplyScalar(.45);spark.v.y=.7+random();spark.life=.3+random()*.25;}

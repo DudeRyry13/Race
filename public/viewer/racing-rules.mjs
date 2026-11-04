@@ -28,8 +28,8 @@ export function tickRacerRules(r,dt,wantsNitro){
 }
 export function racerTuning(r){return r.tuning??RULES;}
 export function speedLimit(r){const t=racerTuning(r);return (r.boosting?t.boostSpeed:t.maxSpeed)*(r.slowTime>0?.58:1)*(r.oilTime>0?.82:1)*(r.stunTime>0?.28:1);}
-export function motorStep(r,velocity,dt,{throttle=0,brake=false,handbrake=false,curvature=0,onRoad=true,targetSpeed=null,drifting=false}={}){
-  const t=racerTuning(r),cap=onRoad?speedLimit(r):12,acceleration=r.boosting?t.boostAcceleration:t.acceleration;
+export function motorStep(r,velocity,dt,{throttle=0,brake=false,handbrake=false,curvature=0,onRoad=true,targetSpeed=null,drifting=false,surface=null}={}){
+  const t=racerTuning(r),cap=onRoad?speedLimit(r)*(surface?.speedFactor??1):12,acceleration=(r.boosting?t.boostAcceleration:t.acceleration)*(surface?.accelerationFactor??1);
   if(targetSpeed!==null){
     const target=Math.min(cap,targetSpeed),change=target>velocity?acceleration:t.braking;
     velocity+=Math.max(-change*dt,Math.min(change*dt,target-velocity));
@@ -40,7 +40,7 @@ export function motorStep(r,velocity,dt,{throttle=0,brake=false,handbrake=false,
   const drag=(onRoad?.55:5)+Math.abs(velocity)*(onRoad?.035:.35);
   velocity*=Math.exp(-(handbrake?7:drag/(Math.abs(velocity)+.8))*dt);
   if(onRoad&&Math.abs(curvature)>.0001){
-    const corner=Math.sqrt((drifting?t.driftGrip:t.lateralGrip)/Math.abs(curvature));
+    const corner=Math.sqrt((drifting?t.driftGrip:t.lateralGrip)*(surface?.gripFactor??1)/Math.abs(curvature));
     if(Math.abs(velocity)>corner)velocity= Math.sign(velocity)*(corner+(Math.abs(velocity)-corner)*Math.exp(-dt*5));
   }
   velocity=Math.max(-t.reverseSpeed,Math.min(cap,velocity));

@@ -31,7 +31,7 @@ export function createDriftEffects({THREE,scene}){
     time+=dt;timer+=dt;let changed=false;
     for(let i=0;i<capacity;i++)if(expires[i]&&expires[i]<time){positions.fill(-10000,i*18,(i+1)*18);expires[i]=0;changed=true;}
     if(timer>=.035){timer=0;for(const r of racers){
-      if(!r.drifting||!r.grounded){last.delete(r.id);continue;}
+      if(!r.drifting||!r.grounded||r.surfaceKind==='sand'){last.delete(r.id);continue;}
       const forward=new THREE.Vector3(Math.sin(r.heading),0,Math.cos(r.heading)),side=new THREE.Vector3(forward.z,0,-forward.x),pair=[];
       for(const sign of [-1,1]){
         const p=r.group.position.clone().addScaledVector(forward,-r.halfLength*.65).addScaledVector(side,sign*r.radius*.72);p.y+=.025;pair.push(p);

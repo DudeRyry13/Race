@@ -5,19 +5,19 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
 import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
 import {resolveCapsuleCollision} from './collision.mjs';
-import {createTrackRoute,stepTrackHeight} from './race-track.mjs';
-import {RULES,ITEM_TYPES,ITEM_BY_ID,initRacerRules,tickRacerRules,speedLimit,motorStep,racerTuning} from './racing-rules.mjs';
+import {createTrackRoute,stepTrackHeight} from './race-track.mjs?build=surfaces-v22';
+import {RULES,ITEM_TYPES,ITEM_BY_ID,initRacerRules,tickRacerRules,speedLimit,motorStep,racerTuning} from './racing-rules.mjs?build=surfaces-v22';
 import {RACERS,racerDisplayStats} from './racer-data.mjs';
 import {createRaceAudio} from './race-audio.mjs';
-import {createRaceItems} from './race-items.mjs?build=web-v19';
+import {createRaceItems} from './race-items.mjs?build=surfaces-v22';
 import {createRaceAI} from './racer-ai.mjs';
 import {createTrackObstacles} from './track-obstacles.mjs?build=online-v17';
-import {createOnlineClient,decodeInput} from './online-client.mjs?build=web-v20';
-import {packRacer,applyRacer} from './online-state.mjs?build=online-v17';
+import {createOnlineClient,decodeInput} from './online-client.mjs?build=server-v22';
+import {packRacer,applyRacer} from './online-state.mjs?build=surfaces-v22';
 import {preserveLocalPose,settleLocalPose} from './online-motion.mjs?build=online-v17';
-import {resetDrift,stepDrift,createDriftEffects} from './drift.mjs';
+import {resetDrift,stepDrift,createDriftEffects} from './drift.mjs?build=surfaces-v22';
 import {createPodium} from './podium.mjs?build=podium-no-headlights-v7';
-import {createRaceIntro,RACE_INTRO_SECONDS,CHASE_CAMERA} from './race-intro.mjs?build=camera-v20';
+import {createRaceIntro,RACE_INTRO_SECONDS,CHASE_CAMERA} from './race-intro.mjs?build=camera-v22';
 import {prepareRaceGraphics} from './render-preparation.mjs?build=web-v19';
 
 const $=id=>document.getElementById(id),clamp=THREE.MathUtils.clamp,damp=THREE.MathUtils.damp;
@@ -26,7 +26,7 @@ let selectedId=localStorage.getItem('neon-racer')||'mensari';if(!HEROES.some(h=>
 const TRACKS=[{id:'app1',name:'Caritas · Neon Circuit',tag:'Неоновый город',short:'APP1',assetVersion:'uniform-no-jumps-v3'},
   {id:'app2',name:'Fortitudo · Noir Circuit',tag:'Ночной город и тоннели',short:'APP2',assetVersion:'uniform-no-jumps-v3'},
   {id:'app3',name:'Audentia · Skybreak Circuit',tag:'Три разрыва · виадук · ловушки',short:'APP3',jumps:true,assetVersion:'audentia-v13'},
-  {id:'app4',name:'Sunstone · Colosseum GP',tag:'Пустынный каньон · спираль · тоннель · прыжок',short:'APP4',jumps:true,assetVersion:'sunstone-v21'}];
+  {id:'app4',name:'Sunstone · Colosseum GP',tag:'Каньон · песчаная арена · тоннель · прыжок',short:'APP4',jumps:true,assetVersion:'sunstone-v22'}];
 let selectedTrackId=localStorage.getItem('neon-track')||'app1';if(!TRACKS.some(t=>t.id===selectedTrackId))selectedTrackId='app1';
 const DIFFICULTIES=[{id:'easy',name:'Лёгкий',description:'Прежний темп соперников'},
   {id:'medium',name:'Средний',description:'Позднее торможение, уверенные обгоны и дрифт'},
@@ -47,7 +47,7 @@ function configureTrack(data){
   trackObstacles=createTrackObstacles({route,racers,getPlayer:()=>player,sound:sfx,isHuman});
   mapScale=Math.min(390/(mapBounds.max.x-mapBounds.min.x),170/(mapBounds.max.z-mapBounds.min.z));
 }
-configureTrack(await (await fetch(`./assets/${selectedTrackId}-route.json`,{cache:'no-store'})).json());
+configureTrack(await (await fetch(`./assets/${selectedTrackId}-route.json?build=surfaces-v22`,{cache:'no-store'})).json());
 
 const scene=new THREE.Scene();scene.background=new THREE.Color('#070b1b');scene.fog=new THREE.Fog('#070b1b',400,1350);
 const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'high-performance'});renderer.domElement.id='world';renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.35));
@@ -133,7 +133,7 @@ async function selectTrack(id,fromNetwork=false){
   for(const b of $('difficultyGrid').querySelectorAll('button'))b.disabled=true;
   const previous={data:trackData,group:trackGroup,items,id:selectedTrackId};let candidate=null,nextItems=null;
   try{
-    const response=await fetch(`./assets/${id}-route.json`,{cache:'no-store'});if(!response.ok)throw Error('Track data '+response.status);
+    const response=await fetch(`./assets/${id}-route.json?build=surfaces-v22`,{cache:'no-store'});if(!response.ok)throw Error('Track data '+response.status);
     const data=await response.json();candidate=await loadTrack(data,id);
     configureTrack(data);scene.remove(previous.group);scene.add(candidate);
     nextItems=createRaceItems({THREE,scene,route,racers,getPlayer:()=>player,getTime:()=>raceTime,notify,sound:sfx,onPickup:showPickupFlash,isHuman,onEvent:event=>online?.event(event)});items=nextItems;
@@ -203,7 +203,7 @@ function placeAI(r,dt=0,snap=false){
   const s=sampleDistance(r.distance),oldHeading=r.motionHeading,forward=Math.sqrt(Math.max(0,r.currentSpeed*r.currentSpeed-r.laneVelocity*r.laneVelocity));
   r.u=s.u;r.motionHeading=Math.atan2(s.t.x,s.t.z)+Math.atan2(r.laneVelocity,Math.max(1,forward));r.heading=r.motionHeading+r.driftAngle;r.group.position.x=s.p.x+s.left.x*r.lane;r.group.position.z=s.p.z+s.left.z*r.lane;
   if(dt>0&&r.currentSpeed>4){const turn=Math.atan2(Math.sin(r.motionHeading-oldHeading),Math.cos(r.motionHeading-oldHeading));r.pathCurvature=damp(r.pathCurvature||0,turn/(r.currentSpeed*dt),8,dt);}
-  const surface=route.surfaceAt(r.group.position,s);placeHeight(r,surface,dt,Math.sin(r.motionHeading)*r.currentSpeed,Math.cos(r.motionHeading)*r.currentSpeed,snap);
+  const surface=snap?(route.roadSurfaceAt(r.group.position,s)??route.surfaceAt(r.group.position,s)):route.surfaceAt(r.group.position,s);r.surfaceKind=surface.kind??'road';placeHeight(r,surface,dt,Math.sin(r.motionHeading)*r.currentSpeed,Math.cos(r.motionHeading)*r.currentSpeed,snap);
   const pitch=r.grounded?-Math.atan(surface.gx*Math.sin(r.heading)+surface.gz*Math.cos(r.heading)):-Math.atan2(r.verticalSpeed,Math.max(8,Math.abs(r.currentSpeed)));
   r.group.rotation.set(clamp(pitch,-.4,.4),r.heading,Math.atan(surface.bank??0)+(r.drifting?-r.driftSign*.10:clamp(-r.laneVelocity*.012,-.07,.07)),'YXZ');
   const ahead=route.getTangentAt((r.u+12/LENGTH)%1),angle=Math.atan2(ahead.x*s.t.z-ahead.z*s.t.x,ahead.x*s.t.x+ahead.z*s.t.z);
@@ -252,8 +252,9 @@ function openPodiumPreview(){
 }
 function closestTrack(r){
   let best=r.nearest,bestDistance=Infinity;
-  for(let d=-85;d<=85;d++){const i=(r.nearest+d+N)%N,s=samples[i],distance=(r.group.position.x-s.p.x)**2+(r.group.position.z-s.p.z)**2+((r.group.position.y-s.p.y)*.4)**2;if(distance<bestDistance){bestDistance=distance;best=i;}}
-  if(bestDistance>500)for(let i=0;i<N;i+=3){const p=samples[i].p,d=(r.group.position.x-p.x)**2+(r.group.position.z-p.z)**2+(route.physical?((r.group.position.y-p.y)*.7)**2:0);if(d<bestDistance){bestDistance=d;best=i;}}
+  const score=p=>{const dy=r.group.position.y-p.y,wrongLevel=route.terrain&&r.grounded&&r.surfaceKind==='sand'&&dy<-2.5;return (r.group.position.x-p.x)**2+(r.group.position.z-p.z)**2+(dy*(route.terrain?1.5:.4))**2+(wrongLevel?100000:0);};
+  for(let d=-85;d<=85;d++){const i=(r.nearest+d+N)%N,distance=score(samples[i].p);if(distance<bestDistance){bestDistance=distance;best=i;}}
+  if(bestDistance>500)for(let i=0;i<N;i+=3){const d=score(samples[i].p);if(d<bestDistance){bestDistance=d;best=i;}}
   r.nearest=best;return samples[best];
 }
 function aiPlan(r,dt){
@@ -278,20 +279,30 @@ function playerStep(dt,r=player,input=readLocalInput()){
   const target=left!==right?(left?1:-1):0;r.steering=damp(r.steering,target,16,dt);
   const s=closestTrack(r),delta=r.group.position.clone().sub(s.p),lateral=delta.dot(s.left);r.lane=lateral;
   let onRoad=Math.abs(lateral)<HALF+.4,wall=HALF+.1-r.radius*.8;
-  if(Math.abs(lateral)>wall&&Math.abs(lateral)<HALF+5&&r.group.position.y<s.p.y+1.4&&r.group.position.y>s.p.y-.6){r.group.position.addScaledVector(s.left,clamp(lateral,-wall,wall)-lateral);r.currentSpeed*=Math.exp(-dt*6);r.hit.addScaledVector(s.left,-Math.sign(lateral)*dt*8);onRoad=true;sfx('scrape',.4);}
-  const wasDrifting=r.drifting,drift=stepDrift(r,dt,{held:input.drift,steering:r.steering,onRoad:onRoad&&r.grounded});
+  if(!route.terrain&&Math.abs(lateral)>wall&&Math.abs(lateral)<HALF+5&&r.group.position.y<s.p.y+1.4&&r.group.position.y>s.p.y-.6){r.group.position.addScaledVector(s.left,clamp(lateral,-wall,wall)-lateral);r.currentSpeed*=Math.exp(-dt*6);r.hit.addScaledVector(s.left,-Math.sign(lateral)*dt*8);onRoad=true;sfx('scrape',.4);}
+  const contact=route.surfaceAt(r.group.position,s,onRoad),sand=contact.kind==='sand'&&r.grounded&&Math.abs(contact.height-r.group.position.y)<.8;
+  const drivable=onRoad||sand||contact.onRoad||!!contact.gap;
+  const wasDrifting=r.drifting,drift=stepDrift(r,dt,{held:input.drift,steering:r.steering,onRoad:onRoad&&r.grounded&&!sand});
   if(r===player&&!wasDrifting&&r.drifting)sfx('drift');
   if(r===player&&drift.released){notify(`ДРИФТ-ТУРБО · ${drift.released}`,'#ffce83');sfx('turbo');}
-  const grip=1/(1+Math.max(0,Math.abs(r.currentSpeed)-20)*.025),normalCurve=r.steering*.14*racerTuning(r).handling*grip*(r.oilTime>0?.6:1)*(r.stunTime>0?.3:1);
+  const grip=1/(1+Math.max(0,Math.abs(r.currentSpeed)-20)*.025),normalCurve=r.steering*.14*racerTuning(r).handling*grip*(sand?.78:1)*(r.oilTime>0?.6:1)*(r.stunTime>0?.3:1);
   const curvature=drift.curvature===null?normalCurve:THREE.MathUtils.lerp(normalCurve,drift.curvature,drift.blend);
-  r.currentSpeed=motorStep(r,r.currentSpeed,dt,{throttle:gas?1:0,brake,curvature,onRoad,drifting:r.drifting||Math.abs(r.driftAngle)>.18});r.motionHeading+=curvature*r.currentSpeed*dt;r.heading=r.motionHeading+r.driftAngle;
+  r.currentSpeed=motorStep(r,r.currentSpeed,dt,{throttle:gas?1:0,brake,curvature,onRoad:drivable,surface:sand?contact:null,drifting:r.drifting||Math.abs(r.driftAngle)>.18});r.motionHeading+=curvature*r.currentSpeed*dt;r.heading=r.motionHeading+r.driftAngle;
   r.hit.multiplyScalar(Math.exp(-dt*4));if(r.oilTime>0)r.hit.addScaledVector(s.left,Math.sin(raceTime*8+r.index)*dt*1.6);
-  const vx=Math.sin(r.motionHeading)*r.currentSpeed+r.hit.x,vz=Math.cos(r.motionHeading)*r.currentSpeed+r.hit.z;r.group.position.x+=vx*dt;r.group.position.z+=vz*dt;
-  const surface=route.surfaceAt(r.group.position,s,onRoad);placeHeight(r,surface,dt,vx,vz);
+  const oldX=r.group.position.x,oldZ=r.group.position.z,vx=Math.sin(r.motionHeading)*r.currentSpeed+r.hit.x,vz=Math.cos(r.motionHeading)*r.currentSpeed+r.hit.z;r.group.position.x+=vx*dt;r.group.position.z+=vz*dt;
+  if(route.terrain&&!route.canLeaveRoad(s.u,lateral)&&r.group.position.y<s.p.y+1.8&&r.group.position.y>s.p.y-1.2){
+    const nextLane=r.group.position.clone().sub(s.p).dot(s.left),rail=route.barrierHalfWidth??HALF+.1,inside=Math.abs(lateral)<rail,limit=rail+(inside?-1:1)*r.radius*.8;
+    if(inside?Math.abs(nextLane)>limit:Math.abs(nextLane)<limit){
+      r.group.position.addScaledVector(s.left,Math.sign(lateral||nextLane)*limit-nextLane);r.currentSpeed*=Math.exp(-dt*6);sfx('scrape',.4);
+    }
+  }
+  let surface=route.surfaceAt(r.group.position,s,onRoad);
+  if(route.terrain&&r.grounded&&surface.kind!=='road'&&surface.height-r.group.position.y>.7){r.group.position.x=oldX;r.group.position.z=oldZ;r.currentSpeed*=Math.exp(-dt*12);surface=route.surfaceAt(r.group.position,s,onRoad);}
+  placeHeight(r,surface,dt,vx,vz);r.surfaceKind=surface.kind??(onRoad?'road':'air');
   const pitch=r.grounded?-Math.atan(surface.gx*Math.sin(r.heading)+surface.gz*Math.cos(r.heading)):-Math.atan2(r.verticalSpeed,Math.max(8,Math.abs(r.currentSpeed)));
   r.group.rotation.set(damp(r.group.rotation.x,clamp(pitch,-.4,.4),9,dt),r.heading,Math.atan(surface.bank??0)+(r.drifting?-r.driftSign*.10:-r.steering*Math.min(.045,Math.abs(r.currentSpeed)*.001)),'YXZ');
-  const u=s.u;let du=u-r.lastU;if(du<-.5)du+=1;if(du>.5)du-=1;if(onRoad)r.distance+=du*LENGTH;r.lastU=u;r.u=u;r.onRoad=onRoad;
-  if(route.physical&&(r.group.position.y<surface.roadHeight-12||r.group.position.y<route.groundHeight-3)){recoverRacer(r);notify('ВОЗВРАЩЕНИЕ НА ТРАССУ');}
+  const u=s.u;let du=u-r.lastU;if(du<-.5)du+=1;if(du>.5)du-=1;if(onRoad||surface.kind==='sand')r.distance+=du*LENGTH;r.lastU=u;r.u=u;r.onRoad=route.terrain?surface.onRoad:onRoad;
+  if(route.physical&&((surface.kind!=='sand'&&r.group.position.y<surface.roadHeight-12)||r.group.position.y<route.groundHeight-3||surface.kind==='hazard'&&r.grounded)){recoverRacer(r);notify('ВОЗВРАЩЕНИЕ НА ТРАССУ');}
   else if(!route.physical&&(r.group.position.y<route.groundHeight-3||!onRoad&&r.group.position.y<route.groundHeight+.3)){r.group.position.copy(s.p);placeHeight(r,route.surfaceAt(s.p,s),0,0,0,true);r.currentSpeed=0;r.hit.set(0,0,0);resetDrift(r);r.motionHeading=r.heading=Math.atan2(s.t.x,s.t.z);notify('ВОЗВРАЩЕНИЕ НА ТРАССУ');}
   r.steer.time=1-r.steering;
 }
@@ -378,7 +389,7 @@ function updateHud(){
   $('racePlace').textContent=place;$('raceLap').textContent=`${Math.min(RULES.laps,Math.max(1,Math.floor(r.distance/LENGTH)+1))} / ${RULES.laps}`;$('raceClock').textContent=formatTime(raceTime);
   $('speed').textContent=Math.round(Math.abs(r.currentSpeed)*3.6);$('nitroFill').style.transform=`scaleX(${r.energy})`;$('nitroText').textContent=r.boosting?'ТУРБО':`${Math.round(r.energy*100)}%`;
   const item=ITEM_BY_ID[r.item];$('itemName').textContent=item?.name??'Подбери ящик';$('itemSymbol').textContent=item?.symbol??'?';$('itemDescription').textContent=item?.description??'Светящиеся ящики дают один из семи предметов.';$('itemSlot').style.setProperty('--item-color',item?.color??'#9d9cb8');$('useItem').disabled=!item;$('dropItem').disabled=!item;
-  $('raceState').textContent=r.shieldTime>0?'ЩИТ':r.stunTime>0?'ПОПАДАНИЕ':r.oilTime>0?'МАСЛО':r.drifting?'ДРИФТ':raceTime-lastContact<.6?'КОНТАКТ':TRACKS.find(t=>t.id===selectedTrackId).short;
+  $('raceState').textContent=r.shieldTime>0?'ЩИТ':r.stunTime>0?'ПОПАДАНИЕ':r.oilTime>0?'МАСЛО':r.surfaceKind==='sand'&&r.grounded?'ПЕСОК':r.drifting?'ДРИФТ':raceTime-lastContact<.6?'КОНТАКТ':TRACKS.find(t=>t.id===selectedTrackId).short;
   $('driftFill').style.transform=`scaleX(${Math.min(1,r.driftCharge/1.9)})`;$('driftText').textContent=r.drifting?(r.driftTier?'ТУРБО '+r.driftTier:'ЗАРЯДКА'):'SHIFT + ПОВОРОТ';
   document.body.classList.toggle('boosting',r.boosting&&phase==='race');
 }

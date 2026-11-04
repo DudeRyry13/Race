@@ -1,5 +1,4 @@
 import {createInputInbox} from './online-input.mjs?build=online-v17';
-import {createPeerLink} from './online-peer.mjs?build=online-v17';
 export const ONLINE_PROTOCOL='babylon-online-v1';
 const hosted=globalThis.location?.protocol==='https:'||globalThis.document?.documentElement?.dataset?.hosted==='true';
 const configuredServer=globalThis.document?.documentElement?.dataset?.onlineServer;
@@ -30,17 +29,10 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
     action=0,lastSend=0,lastSnapshot=0,lastSeen=0,lastSelection='',status='Одиночная игра',
     receive=()=>{},peerPing=0,peerOffset=0,bestPeerPing=Infinity,snapshotSequence=0,receivedSnapshot=0,lastInputMask=-1,lastPhase='';
   const inbox=createInputInbox();
-  const peer=createPeerLink({signal:signal=>send({type:'signal',signal}),onPacket:m=>receive(m,true),onChange:()=>{
-    peerPing=0;bestPeerPing=Infinity;peerOffset=0;render();
-  }});
-  const gameSend=(packet,important=false)=>{
-    if(peer.ready){if(peer.send(packet,important))return;if(!important)return;}
-    send(packet);
-  };
-  function ensurePeer(){if(role==='host'&&room?.players.filter(Boolean).length===2&&!peer.exists)peer.begin();}
+  const gameSend=packet=>send(packet);
   function latencyText(){
-    const value=peerPing||(!peer.ready?ping:0);
-    return (peer.ready?'НАПРЯМУЮ':'ЧЕРЕЗ СЕРВЕР')+(value?' · '+Math.round(value)+' мс':' · соединяемся');
+    const value=peerPing||ping;
+    return 'ЧЕРЕЗ СЕРВЕР'+(value?' · '+Math.round(value)+' мс':' · соединяемся');
   }
   const send=data=>{if(socket?.readyState===1&&socket.bufferedAmount<262144)socket.send(JSON.stringify(data));};
   const own=()=>room?.players.find(p=>p?.role===role);
@@ -51,7 +43,7 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
     $('onlineReady').textContent=own()?.ready?'ГОТОВ ✓':'ГОТОВ';
     $('onlineStatus').textContent=status+(active?' · '+latencyText():'');
     $('onlineLatency').hidden=!active;$('onlineLatency').textContent=active?latencyText():'';
-    $('onlineLatency').dataset.transport=peer.ready?'direct':'relay';
+    $('onlineLatency').dataset.transport='relay';
     $('onlineInvite').hidden=!invite;$('onlineInvite').value=invite;$('onlineCopy').hidden=!invite;
     $('onlinePlayers').textContent=active?peers.filter(Boolean).map(p=>(p.role===role?'Ты':'Соперник')+': '+(p.ready?'готов':p.loaded?'выбирает героя':'загружает трассу')).join(' · '):'Два игрока + семь ботов. У каждого должна быть эта версия игры.';
     if(!active)return;
@@ -67,7 +59,7 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
   function clearTimers(){clearInterval(heartbeat);heartbeat=null;}
   async function leave(){
     closed=true;clearTimers();socket?.close();socket=null;role=null;room=null;race='';invite='';
-    pending=[];outgoing=[];inbox.reset();peer.close();lastSelection='';status='Одиночная игра';render();
+    pending=[];outgoing=[];inbox.reset();peerPing=ping=0;bestPeerPing=Infinity;peerOffset=0;lastSelection='';status='Одиночная игра';render();
     for(const b of [...$('heroGrid').querySelectorAll('button'),...$('trackGrid').querySelectorAll('button'),...$('difficultyGrid').querySelectorAll('button')])b.disabled=!getSelection().loaded;
     $('podiumPreview').disabled=!getSelection().loaded;$('startRace').disabled=!getSelection().loaded;$('startRace').textContent='НА СТАРТ';
     onDisconnect();
@@ -76,13 +68,13 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
     clearInterval(heartbeat);
     lastSeen=performance.now();
     closed=false;role=asRole;status='Подключаемся…';socket=new WebSocket(url);render();
-    receive=async(m,viaPeer=false)=>{
+    receive=async(m)=>{
       if(!m||typeof m!=='object')return;
       lastSeen=performance.now();
-      if(m.type==='signal'){peer.accept(m.signal);return;}
+      if(m.type==='signal')return;
       if(m.type==='linkPing'){gameSend({type:'linkPong',time:m.time,remoteTime:performance.now(),route:m.route});return;}
       if(m.type==='linkPong'){
-        if(m.route!==(peer.ready?'direct':'relay'))return;
+        if(m.route!=='relay')return;
         const now=performance.now(),rtt=now-m.time;
         if(rtt>=0&&rtt<10000){
           peerPing=peerPing?peerPing*.75+rtt*.25:rtt;
@@ -96,9 +88,9 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
         room=m.room;role=m.role;
         const current=getSelection(),other=room.players.find(p=>p&&p.role!==role);
         const hero=current.hero===other?.hero?heroIds.find(id=>id!==other.hero):current.hero;
-        await onRoom(room,role,hero);selectionChanged({hero});ensurePeer();status=role==='host'?'Ссылка готова — отправь её второму игроку':'Ты в комнате';render();
+        await onRoom(room,role,hero);selectionChanged({hero});status=role==='host'?'Ссылка готова — отправь её второму игроку':'Ты в комнате';render();
       }else if(m.type==='room'){
-        room=m.room;await onRoom(room,role);ensurePeer();render();
+        room=m.room;await onRoom(room,role);render();
       }else if(m.type==='start'){
         race=m.race;room=m.room;pending=[];outgoing=[];inbox.reset();sequence=action=snapshotSequence=receivedSnapshot=0;lastInputMask=-1;lastPhase='';lastSnapshot=0;
         onStart(m);render();
@@ -114,7 +106,7 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
       else if(m.type==='lobby'){race='';pending=[];inbox.reset();onLobby();}
       else if(m.type==='pause'||m.type==='pauseRequest'){onPause(!!m.paused,m.type==='pauseRequest');}
       else if(m.type==='pong'){ping=performance.now()-m.time;render();}
-      else if(m.type==='peerLeft'){race='';pending=[];inbox.reset();peer.close();status='Соперник отключился. Ожидаем подключения.';onLobby();render();}
+      else if(m.type==='peerLeft'){race='';pending=[];inbox.reset();peerPing=0;bestPeerPing=Infinity;peerOffset=0;status='Соперник отключился. Ожидаем подключения.';onLobby();render();}
       else if(m.type==='error'){status=m.message;render();}
     };
     socket.onmessage=event=>{try{receive(JSON.parse(event.data)).catch(()=>{});}catch{}};
@@ -128,7 +120,7 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
     socket.onerror=()=>{status='Не удалось подключиться. Проверь ссылку и окно запуска у создателя.';render();};
     heartbeat=setInterval(()=>{
       send({type:'ping',time:performance.now()});
-      if(room?.players.filter(Boolean).length===2){gameSend({type:'linkPing',time:performance.now(),route:peer.ready?'direct':'relay'});ensurePeer();}
+      if(room?.players.filter(Boolean).length===2)gameSend({type:'linkPing',time:performance.now(),route:'relay'});
       if(lastSeen&&performance.now()-lastSeen>15000)socket?.close();
     },1000);
   }
@@ -176,7 +168,7 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
     get active(){return !!role;},get isHost(){return role==='host';},get isGuest(){return role==='guest';},
     get remoteId(){return room?.players.find(p=>p&&p.role!==role)?.hero;},get hostId(){return room?.players.find(p=>p?.role==='host')?.hero;},
     get running(){return !!race;},get room(){return room;},get ack(){return inbox.ack;},
-    get metrics(){return {direct:peer.ready,serverRtt:ping,peerRtt:peerPing,pending:pending.length};},
+    get metrics(){return {direct:false,serverRtt:ping,peerRtt:peerPing,pending:pending.length};},
     selectionChanged,render,leave,
     start(){send({type:'start'});},
     lobby(){if(role==='host')send({type:'lobby'});},
@@ -188,8 +180,8 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
       if(outgoing.length>6)outgoing.shift();
       if(pending.length>360){socket?.close();return;}
       if(performance.now()-lastSend>16||frame[2]!==lastInputMask||frame[2]&192){
-        // Repeat recent steering samples on the lossy channel. Item actions also
-        // use the reliable channel and are deduplicated by their input sequence.
+        // Retain recent steering samples for the host's fixed-step input inbox.
+        // Repeated actions are deduplicated by their input sequence.
         gameSend({type:'input',race,frames:outgoing.slice(-4)});
         if(frame[2]&192)gameSend({type:'input',race,frames:[frame]},true);
         lastInputMask=frame[2];lastSend=performance.now();
@@ -201,11 +193,11 @@ export function createOnlineClient({heroIds,getSelection,onRoom,onStart,onState,
     },
     reconcile(receivedAck){pending=pending.filter(f=>f[0]>receivedAck);return pending;},
     publish(state,force=false){
-      if(role!=='host'||!race||(!force&&performance.now()-lastSnapshot<(peer.ready?33:50)))return;
+      const interval=lastPhase==='race'?33:lastPhase==='countdown'?50:200;
+      if(role!=='host'||!race||(!force&&(performance.now()-lastSnapshot<interval||socket?.bufferedAmount>65536)))return;
       lastSnapshot=performance.now();
       const value=typeof state==='function'?state():state;
       const packet={type:'state',race,ack:inbox.ack,...value,snapshot:++snapshotSequence,sentAt:performance.now()};
-      if(peer.ready&&value.phase!==lastPhase)send(packet);
       lastPhase=value.phase;gameSend(packet,value.phase==='finished');
     },
     event(event){if(role==='host'&&race)gameSend({type:'event',race,event},true);}
